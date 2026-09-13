@@ -80,5 +80,37 @@ jobs:
       name: github-pages
       url: ${{ steps.deploy.outputs.page_url }}
     steps:
+      # O `deploy-pages` responde 404 com um traceback de octokit quando o
+      # Pages não está ligado — o que parece falha de código e é configuração
+      # que falta. Esta checagem diz qual dos dois é, antes de gastar o deploy.
+      - name: O Pages está ligado neste repositório?
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          alvo="https://api.github.com/repos/${{ github.repository }}/pages"
+          codigo=$(curl -sS -o /tmp/pages.json -w "%{http_code}" \
+                        -H "Authorization: Bearer $GH_TOKEN" \
+                        -H "Accept: application/vnd.github+json" \
+                        "$alvo")
+
+          if [ "$codigo" = "200" ]; then
+            endereco=$(python3 -c "import json; print(json.load(open('/tmp/pages.json')).get('html_url', ''))")
+            echo "Pages ligado. Publicando em ${endereco}"
+            exit 0
+          fi
+
+          echo "::error title=GitHub Pages não está ligado::O site foi montado, mas não há onde publicar."
+          echo ""
+          echo "  O job 'montar' passou: o site está pronto e correto."
+          echo "  O que falta é uma configuração no repositório, feita uma vez:"
+          echo ""
+          echo "    1. o repositório precisa ser público (Pages em repositório"
+          echo "       privado exige plano pago)"
+          echo "    2. Settings -> Pages -> Source: GitHub Actions"
+          echo ""
+          echo "  Depois disso, rode este workflow de novo."
+          echo "  https://github.com/${{ github.repository }}/settings/pages"
+          exit 1
+
       - id: deploy
         uses: actions/deploy-pages@v4

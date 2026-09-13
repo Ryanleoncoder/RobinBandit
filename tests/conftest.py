@@ -33,6 +33,14 @@ def config_isolada(monkeypatch):
     for herdada in ("SENTURY_VAULT_PATH", "SENTURY_ACCOUNTS_PATH"):
         monkeypatch.delenv(herdada, raising=False)
     monkeypatch.setattr(account_config, "caminho_da_config", lambda: casa / "config.json")
+
+    # O idioma da interface e descoberto pelo locale da maquina quando ninguem
+    # escolhe. Isso fazia a suite depender de onde ela roda: aqui, em pt-BR, os
+    # testes que conferem mensagem passavam; no Linux do CI, sem locale pt, a
+    # mesma mensagem saia em ingles e seis testes quebravam. Fixar aqui torna a
+    # suite determinista; quem quiser testar o ingles troca explicitamente.
+    monkeypatch.setenv("ROBINBANDIT_IDIOMA", "pt")
+
     account_config._CACHE_MODELOS.update(mtime=None, valor={})
     yield
     account_config._CACHE_MODELOS.update(mtime=None, valor={})
