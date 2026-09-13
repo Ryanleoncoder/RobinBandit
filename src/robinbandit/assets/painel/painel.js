@@ -35,8 +35,75 @@ function medidor(valor, estimado) {
     (estimado && n ? '<span class="palpite-nota">palpite</span>' : '') + '</span>';
 }
 
+/* — Primeiros passos — */
+/* So aparece antes da primeira chamada: passada ela, a fila em baixo responde
+ * sozinha. Ate existir, quem instalava encontrava "nenhuma chamada ainda" — a
+ * informacao estava certa e nao dizia o que fazer com ela.
+ *
+ * Cada passo se resolve conforme acontece; nao ha nada para marcar. */
+function desenharInicio() {
+  const onde = $('inicio');
+  if (!onde) return;
+
+  const vazio = (estado.chamadas || 0) === 0;
+
+  // Uma tela, um estado. Sem isto, a tela vazia dizia "nenhuma chamada ainda"
+  // em tres lugares — no placar, na tabela e aqui — e ainda deixava tres
+  // titulos de secao pairando sobre blocos sem nada dentro. Enquanto nao ha o
+  // que mostrar, o que aparece e o que fazer; quando ha, os passos somem.
+  ['placar', 'ordem', 'credito', 'historico'].forEach(id => {
+    const el = $(id);
+    if (!el) return;
+    el.hidden = vazio;
+    // O `h2` de cada bloco e o irmao imediatamente acima dele.
+    const titulo = el.previousElementSibling;
+    if (titulo && titulo.tagName === 'H2') titulo.hidden = vazio;
+  });
+
+  if (!vazio) { onde.innerHTML = ''; return; }
+
+  const provedores = (estado.provedores || []).length;
+  const ferramenta = (ferramentas || []).filter(f => f.conexao)[0];
+
+  const passos = [
+    {
+      feito: provedores > 0,
+      titulo: T('inicio.p1.titulo'),
+      texto: provedores > 0 ? T('inicio.p1.feito', { n: provedores }) : T('inicio.p1.falta')
+    },
+    {
+      feito: !!ferramenta,
+      titulo: T('inicio.p2.titulo'),
+      texto: ferramenta ? T('inicio.p2.feito', { quem: ferramenta.label }) : T('inicio.p2.texto'),
+      acao: ferramenta ? null : T('inicio.ir_conectar')
+    },
+    {
+      feito: false,
+      titulo: T('inicio.p3.titulo'),
+      texto: T('inicio.p3.texto')
+    }
+  ];
+
+  onde.innerHTML =
+    '<h2>' + T('inicio.titulo') + ' <span class="risco"></span></h2>' +
+    '<ol class="passos">' +
+    passos.map((p, i) =>
+      '<li' + (p.feito ? ' class="feito"' : '') + '>' +
+      // O numero vira marca de concluido: o estado nao fica so na cor.
+      '<span class="n">' + (p.feito ? '&#10003;' : '0' + (i + 1)) + '</span>' +
+      '<div><strong>' + p.titulo + '</strong>' +
+      '<p>' + p.texto + '</p>' +
+      (p.acao ? '<button type="button" class="acao" id="ir-conectar">' + p.acao + '</button>' : '') +
+      '</div></li>').join('') +
+    '</ol>';
+
+  const botao = $('ir-conectar');
+  if (botao) botao.addEventListener('click', () => trocarTela('conectar'));
+}
+
 /* — Agora — */
 function desenharAgora() {
+  desenharInicio();
   const linhas = estado.ordem || [];
   const saude = {};
   (estado.provedores || []).forEach(p => (saude[p.nome] = p));
@@ -865,14 +932,23 @@ function desenharFormDeConta() {
   });
 }
 
+const TELAS = ['agora', 'provedores', 'modelos', 'credenciais', 'janelas', 'uso', 'conectar'];
+
+/* Extraida do listener para o botao dos primeiros passos poder chamar: dois
+ * lugares trocando de tela com a mesma logica escrita duas vezes sairiam do
+ * lugar no primeiro ajuste. */
+function trocarTela(qual) {
+  document.querySelectorAll('nav button[data-tela]').forEach(b => {
+    // Tem que ser "page", não string vazia: o realce da aba ativa vem de
+    // `nav button[aria-current="page"]` no CSS, e `toggleAttribute` grava "".
+    if (b.dataset.tela === qual) b.setAttribute('aria-current', 'page');
+    else b.removeAttribute('aria-current');
+  });
+  TELAS.forEach(t => $('tela-' + t).classList.toggle('oculto', t !== qual));
+}
+
 document.querySelectorAll('nav button[data-tela]').forEach(b =>
-  b.addEventListener('click', () => {
-    document.querySelectorAll('nav button[data-tela]').forEach(o =>
-      o.removeAttribute('aria-current'));
-    b.setAttribute('aria-current', 'page');
-    ['agora', 'provedores', 'modelos', 'credenciais', 'janelas', 'uso', 'conectar'].forEach(t =>
-      $('tela-' + t).classList.toggle('oculto', t !== b.dataset.tela));
-  }));
+  b.addEventListener('click', () => trocarTela(b.dataset.tela)));
 
 carregarConfig().catch(() => recado('recado-prov', 'não consegui ler a configuração'));
 carregarCredito();
