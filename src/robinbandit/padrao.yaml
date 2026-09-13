@@ -1,0 +1,715 @@
+# Catalogo de fabrica do RobinBandit.
+#
+# Vai DENTRO do pacote: quem instala pelo pip precisa de um catalogo para
+# `robinbandit serve` subir sem escrever YAML nenhum. Provedor sem chave no
+# ambiente simplesmente nao e montado, entao a lista inteira e segura como
+# padrao.
+#
+# Nao edite este arquivo para ajustar a sua maquina: escreva so o que muda
+# em ~/.robinbandit/config.yaml, ou use `herda: padrao` no seu proprio YAML.
+version: 1
+agent_mode: universal
+
+# Em que lingua o painel e a linha de comando respondem: `pt` ou `en`.
+# Vazio (ou ausente) significa "descubra pelo sistema" — quem roda em portugues
+# recebe portugues sem configurar nada.
+#
+# Isto e o PADRAO. A escolha feita no painel, ou por `robinbandit language pt`,
+# fica em ~/.robinbandit/contas.json e vence o que estiver aqui, do mesmo jeito
+# que acontece com tier, modelos e cadeia.
+#
+# O codigo e os comentarios continuam em portugues; isto vale para o que a
+# ferramenta responde, nao para quem a mantem.
+idioma: ""
+
+# Segredos nunca são versionados. O YAML guarda somente referências.
+# Precedência em runtime: cofre Robin > ambiente > Settings do agente.
+secrets:
+  vault_path_env: ROBINBANDIT_VAULT_PATH
+  account_config_path_env: ROBINBANDIT_ACCOUNTS_PATH
+
+# Contas declaradas de fabrica. Uma conta e uma chave com nome; varias contas
+# do mesmo provedor sao o caso normal, e o rotador alterna entre elas quando uma
+# bate a cota. Aqui mora so o NOME da variavel — o valor fica no ambiente ou no
+# cofre de quem roda.
+accounts:
+  items:
+    - id: openrouter-paga
+      provider: openrouter
+      key_env: API_KEY_ULTRA
+      label: OpenRouter (crédito pago)
+      paga: true
+      models: [deepseek/deepseek-v4-flash, deepseek/deepseek-v4-pro]
+  # Quem serve cada modo pesado. Sem isto os dois cairiam na conta gratuita, que
+  # e exatamente o oposto do que "Dedicado" quer dizer.
+  tiers:
+    ultra: openrouter-paga
+    ultra_max: openrouter-paga
+
+routing:
+  strategy: adaptive
+  last_resort: fallback
+  chain_order: [groq, gemini, claude_code, cerebras, openrouter, chatgpt_codex, mistral, cohere, sambanova, deepinfra, fireworks, huggingface, claude, ollama, fallback]
+  # Custo influencia sem derrotar saúde/qualidade. Para uma barreira econômica
+  # rígida, use `strategy: tier`.
+  # Como reagir ao erro de um provedor. TABELA, nao algoritmo: a redacao da
+  # mensagem muda quando o provedor quer, e o tempo certo de espera muda por
+  # instalacao e por plano contratado. O bandit e a media de latencia ficam no
+  # codigo, porque sao aprendidos.
+  #
+  # Lidas DE CIMA PARA BAIXO, a primeira que casar decide. A ordem e
+  # significativa: credito vem antes de cota porque a mensagem de credito
+  # esgotado as vezes tambem cita quota, e tratar dinheiro acabado como rate
+  # limit faz o roteador insistir em quem nao vai voltar.
+  erros:
+    regras:
+      - tipo: credit
+        quando_texto: ["402", insufficient, payment required, billing,
+                       out of credit, credits, exceeded your current quota,
+                       not enough balance, spend limit]
+      - tipo: rate_limit
+        quando_texto: ["429", too many requests, rate limit, rate_limit,
+                       quota, overloaded, capacity]
+      - tipo: auth
+        quando_texto: ["401", "403", invalid api key, unauthorized, permission]
+      - tipo: network
+        quando_texto: [timeout, timed out, connect, network]
+    # Segundos fora do jogo por tipo de falha. `escala` avanca um degrau a cada
+    # repeticao da mesma falha, e o ultimo degrau se mantem.
+    cooldown_s:
+      rate_limit:
+        escala: [60, 120, 300]
+      credit: 1800      # dinheiro acabou; so volta no ciclo de billing
+      auth: 3600        # chave ruim nao melhora sozinha
+      network: 30
+      other: 45
+
+  # Sonda de cota: uma requisicao minima, fora de um turno, so para saber se
+  # um provedor em cooldown ja voltou. Custa cota para medir cota — por isso
+  # vem DESLIGADA. Compensa em provedor de assinatura com janela longa (5h,
+  # diaria), onde acertar o momento da volta vale mais que os tokens gastos.
+  quota_ping:
+    ativo: false
+    intervalo_s: 300
+    so_em_cooldown: true   # pingar quem esta saudavel nao descobre nada novo
+
+  cost_penalties:
+    none: 0.00
+    local: 0.00
+    free_preferred: 0.00
+    free_limited: 0.02
+    mixed: 0.04
+    credits: 0.07
+    paid: 0.10
+    subscription: 0.12
+  weights:
+    "classify:SIMPLE": [0.15, 0.55, 0.30]
+    "analysis:CRITICAL": [0.60, 0.15, 0.25]
+    "artifact:CRITICAL": [0.60, 0.15, 0.25]
+    "coding:CRITICAL": [0.60, 0.15, 0.25]
+    SIMPLE: [0.20, 0.50, 0.30]
+    STANDARD: [0.40, 0.30, 0.30]
+    COMPLEX: [0.60, 0.15, 0.25]
+    CRITICAL: [0.60, 0.15, 0.25]
+
+profiles:
+  classify: [groq:openai/gpt-oss-20b, gemini:gemini-2.5-flash-lite]
+  chat: [groq:openai/gpt-oss-20b, gemini:gemini-2.5-flash-lite]
+  analysis: [groq:openai/gpt-oss-120b, chatgpt_codex:gpt-5.6-terra, groq:qwen/qwen3.6-27b, gemini:gemini-3.5-flash]
+  artifact: [gemini:gemini-2.5-flash, chatgpt_codex:gpt-5.6-terra, groq:openai/gpt-oss-120b]
+  coding: [chatgpt_codex:gpt-5.6-sol, gemini:antigravity-preview-05-2026, openrouter:openrouter/free, groq:openai/gpt-oss-120b, deepinfra:deepseek-ai/DeepSeek-V3]
+  fallback: [groq:openai/gpt-oss-20b, gemini:gemini-2.5-flash-lite]
+
+providers:
+  groq:
+    adapter: groq
+    label: Groq
+    base_url: https://api.groq.com/openai/v1
+    api_key_env: GROQ_API_KEY
+    models_env: GROQ_MODELS
+    models: [openai/gpt-oss-20b, qwen/qwen3.6-27b, openai/gpt-oss-120b]
+    # A lista também filtra overrides antigos ainda presentes no ambiente.
+    disabled_models: [llama-3.1-8b-instant, llama-3.3-70b-versatile, qwen/qwen3-32b]
+    planner_models_env: GROQ_PLANNER_MODELS
+    planner_models: [openai/gpt-oss-120b, qwen/qwen3.6-27b, openai/gpt-oss-20b]
+    tier: 1
+    quality: 0.75
+    priority: 1
+    cost_class: free_preferred
+    kinds: [text]
+  gemini:
+    adapter: gemini
+    capabilities: [vision]
+    label: Google Gemini
+    api_key_env: GEMINI_API_KEY
+    models_env: GEMINI_MODELS
+    models: [gemini-2.5-flash, gemini-2.5-flash-lite]
+    tier: 1
+    quality: 0.80
+    priority: 2
+    cost_class: free_preferred
+    kinds: [text, embed, media]
+  github:
+    adapter: openai
+    label: GitHub Models
+    base_url: https://models.github.ai/inference
+    api_key_env: GITHUB_MODELS_API_KEY
+    models_env: GITHUB_MODELS_MODELS
+    models: [openai/gpt-4o-mini, openai/gpt-4.1-mini]
+    enabled: false
+    disabled_reason: GitHub Models foi encerrado em 2026-07-30
+    tier: 1
+    quality: 0.90
+    priority: 3
+    cost_class: free_preferred
+    kinds: [text]
+  cerebras:
+    adapter: openai
+    label: Cerebras
+    base_url: https://api.cerebras.ai/v1
+    api_key_env: CEREBRAS_API_KEY
+    models_env: CEREBRAS_MODELS
+    models: [llama-3.3-70b, qwen-3-32b, gpt-oss-120b]
+    tier: 2
+    quality: 0.72
+    priority: 4
+    cost_class: free_limited
+    kinds: [text]
+  openrouter:
+    adapter: openrouter
+    capabilities: [vision]
+    label: OpenRouter
+    base_url: https://openrouter.ai/api/v1
+    api_key_env: OPENROUTER_API_KEY
+    models_env: OPENROUTER_MODELS
+    models: [openrouter/free, deepseek/deepseek-v4-flash, deepseek/deepseek-v4-pro]
+    extra_headers: {X-Title: RobinBandit}
+    # Havia dois "provedores" aqui, `ultra` e `ultra_max`, e nunca foram dois:
+    # mesmo endpoint, a mesma chave (`ultra_max` caia em API_KEY_ULTRA pelo
+    # fallback) e so o modelo mudando. Listados ao lado do OpenRouter, pareciam
+    # tres OpenRouters, e apareciam na tela de Modelos como se tivessem
+    # catalogo proprio.
+    #
+    # Agora sao o que sempre foram: uma conta paga deste provedor (declarada em
+    # `accounts`, abaixo) e dois modelos dele. Reforcado e Dedicado escolhem
+    # qual dos dois usar.
+    modelo_do_tier:
+      ultra: deepseek/deepseek-v4-flash
+      ultra_max: deepseek/deepseek-v4-pro
+    tier: 2
+    quality: 0.70
+    priority: 5
+    cost_class: mixed
+    kinds: [text]
+  chatgpt_codex:
+    adapter: codex_app_server
+    capabilities: [vision]
+    label: ChatGPT Codex
+    # Identificador semântico; o cliente hospedeiro é dono do asset visual.
+    icon: openai
+    # OAuth pertence ao CLI oficial. Execute `codex login`; nenhum token entra
+    # neste YAML, no cofre Robin ou nos objetos serializados do painel.
+    auth_type: codex_cli
+    binary: codex
+    binary_env: CODEX_BINARY
+    models_env: CHATGPT_CODEX_MODELS
+    models: [gpt-5.6-sol, gpt-5.6-terra, gpt-5.6-luna]
+    timeout: 180
+    tier: 2
+    quality: 0.96
+    priority: 6
+    cost_class: subscription
+    paid_account: true
+    kinds: [text]
+  mistral:
+    adapter: openai
+    label: Mistral
+    base_url: https://api.mistral.ai/v1
+    api_key_env: MISTRAL_API_KEY
+    models_env: MISTRAL_MODELS
+    models: [mistral-small-latest]
+    tier: 2
+    quality: 0.70
+    priority: 6
+    cost_class: free_limited
+    kinds: [text]
+  cohere:
+    adapter: openai
+    label: Cohere
+    base_url: https://api.cohere.ai/compatibility/v1
+    api_key_env: COHERE_API_KEY
+    models_env: COHERE_MODELS
+    models: [command-r-08-2024]
+    tier: 2
+    quality: 0.68
+    priority: 7
+    cost_class: free_limited
+    kinds: [text, embed]
+  sambanova:
+    adapter: openai
+    label: SambaNova
+    base_url: https://api.sambanova.ai/v1
+    api_key_env: SAMBANOVA_API_KEY
+    models_env: SAMBANOVA_MODELS
+    models: [Meta-Llama-3.3-70B-Instruct, DeepSeek-V3-0324]
+    tier: 3
+    quality: 0.82
+    priority: 8
+    cost_class: credits
+    kinds: [text]
+  deepinfra:
+    adapter: openai
+    label: DeepInfra
+    base_url: https://api.deepinfra.com/v1/openai
+    api_key_env: DEEPINFRA_API_KEY
+    models_env: DEEPINFRA_MODELS
+    models: [meta-llama/Llama-3.3-70B-Instruct-Turbo, deepseek-ai/DeepSeek-V3, openai/gpt-oss-120b]
+    tier: 3
+    quality: 0.80
+    priority: 9
+    cost_class: paid
+    kinds: [text]
+  fireworks:
+    adapter: openai
+    label: Fireworks
+    base_url: https://api.fireworks.ai/inference/v1
+    api_key_env: FIREWORKS_API_KEY
+    models_env: FIREWORKS_MODELS
+    models: [accounts/fireworks/models/gpt-oss-120b, accounts/fireworks/models/glm-5p1]
+    tier: 3
+    quality: 0.80
+    priority: 10
+    cost_class: paid
+    kinds: [text, media]
+  huggingface:
+    adapter: openai
+    label: Hugging Face
+    base_url: https://router.huggingface.co/v1
+    api_key_env: HUGGINGFACE_API_KEY
+    models_env: HUGGINGFACE_MODELS
+    models: [meta-llama/Llama-3.3-70B-Instruct]
+    tier: 3
+    quality: 0.68
+    priority: 11
+    cost_class: free_limited
+    kinds: [text, embed]
+  claude:
+    adapter: anthropic
+    capabilities: [vision]
+    label: Anthropic Claude
+    api_key_env: ANTHROPIC_API_KEY
+    models_env: CLAUDE_MODELS
+    models: [claude-sonnet-4-6]
+    tier: 3
+    quality: 0.88
+    priority: 12
+    cost_class: paid
+    kinds: [text]
+  ollama:
+    adapter: openai
+    label: Ollama local
+    base_url_env: OLLAMA_BASE_URL
+    api_key_env: OLLAMA_API_KEY
+    models_env: OLLAMA_MODELS
+    models: []
+    chave_opcional: true      # roda na sua maquina; nao ha segredo a exigir
+    tier: 3
+    quality: 0.70
+    priority: 13
+    cost_class: local
+    kinds: [text]
+
+
+  claude_code:
+    adapter: claude_code
+    label: Claude Code (assinatura)
+    # Sem chave de API: quem autentica e o CLI, com a conta que voce ja usa.
+    # O RobinBandit nao le nem renova credencial — so chama o executavel.
+    auth_type: claude_cli
+    binary: claude
+    binary_env: CLAUDE_CODE_BIN
+    models_env: CLAUDE_CODE_MODELS
+    # Do mais barato para o mais caro: a assinatura nao cobra por token, mas
+    # tem limite de uso — gastar Opus numa pergunta que o Haiku responde
+    # encurta o dia. Os apelidos curtos (haiku, sonnet, opus) tambem valem.
+    models: [claude-haiku-4-5, claude-sonnet-5, claude-opus-5]
+    chave_opcional: true
+    timeout: 300
+    tier: 1
+    quality: 0.95
+    priority: 19
+    cost_class: subscription
+    kinds: [text]
+
+  # ─── Catálogo: prontos para usar, fora da cadeia ──────────────────────────
+  # Cada um abaixo já tem endpoint, variável de chave e modelos conferidos.
+  # Não entram sozinhos: ponha o nome no `chain_order` e a chave no ambiente.
+  # Ficar aqui não custa nada — o que custa é descobrir o formato de cada API
+  # na hora em que você precisa trocar de provedor.
+
+  nvidia:
+    adapter: openai
+    label: NVIDIA NIM
+    base_url: https://integrate.api.nvidia.com/v1
+    api_key_env: NVIDIA_API_KEY
+    models_env: NVIDIA_MODELS
+    models: [meta/llama-3.3-70b-instruct, deepseek-ai/deepseek-r1, nvidia/llama-3.3-nemotron-super-49b-v1]
+    tier: 2
+    quality: 0.80
+    priority: 20
+    cost_class: free
+    kinds: [text]
+
+  deepseek:
+    adapter: openai
+    label: DeepSeek
+    base_url: https://api.deepseek.com/v1
+    api_key_env: DEEPSEEK_API_KEY
+    models_env: DEEPSEEK_MODELS
+    models: [deepseek-chat, deepseek-reasoner]
+    tier: 2
+    quality: 0.85
+    priority: 21
+    cost_class: paid
+    kinds: [text]
+
+  siliconflow:
+    adapter: openai
+    label: SiliconFlow
+    base_url: https://api.siliconflow.cn/v1
+    api_key_env: SILICONFLOW_API_KEY
+    models_env: SILICONFLOW_MODELS
+    models: [deepseek-ai/DeepSeek-V3, Qwen/Qwen2.5-72B-Instruct]
+    tier: 2
+    quality: 0.78
+    priority: 22
+    cost_class: free
+    kinds: [text]
+
+  zhipu:
+    adapter: openai
+    label: Z.AI (GLM)
+    base_url: https://open.bigmodel.cn/api/paas/v4
+    api_key_env: ZHIPU_API_KEY
+    models_env: ZHIPU_MODELS
+    models: [glm-4-flash, glm-4-plus]
+    tier: 2
+    quality: 0.76
+    priority: 23
+    cost_class: free
+    kinds: [text]
+
+  xai:
+    adapter: openai
+    label: xAI (Grok)
+    base_url: https://api.x.ai/v1
+    api_key_env: XAI_API_KEY
+    models_env: XAI_MODELS
+    models: [grok-3, grok-3-mini]
+    tier: 2
+    quality: 0.85
+    priority: 24
+    cost_class: paid
+    kinds: [text]
+
+  moonshot:
+    adapter: openai
+    label: Moonshot (Kimi)
+    base_url: https://api.moonshot.cn/v1
+    api_key_env: MOONSHOT_API_KEY
+    models_env: MOONSHOT_MODELS
+    models: [moonshot-v1-128k, moonshot-v1-32k]
+    tier: 2
+    quality: 0.80
+    priority: 25
+    cost_class: paid
+    kinds: [text]
+
+  modelscope:
+    adapter: openai
+    label: ModelScope
+    base_url: https://api-inference.modelscope.cn/v1
+    api_key_env: MODELSCOPE_API_KEY
+    models_env: MODELSCOPE_MODELS
+    models: [Qwen/Qwen2.5-72B-Instruct]
+    tier: 3
+    quality: 0.72
+    priority: 26
+    cost_class: free
+    kinds: [text]
+
+  nebius:
+    adapter: openai
+    label: Nebius AI Studio
+    base_url: https://api.studio.nebius.com/v1
+    api_key_env: NEBIUS_API_KEY
+    models_env: NEBIUS_MODELS
+    models: [meta-llama/Llama-3.3-70B-Instruct, deepseek-ai/DeepSeek-V3]
+    tier: 3
+    quality: 0.76
+    priority: 27
+    cost_class: free
+    kinds: [text]
+
+  nscale:
+    adapter: openai
+    label: Nscale
+    base_url: https://inference.api.nscale.com/v1
+    api_key_env: NSCALE_API_KEY
+    models_env: NSCALE_MODELS
+    models: [meta-llama/Llama-3.3-70B-Instruct]
+    tier: 3
+    quality: 0.72
+    priority: 28
+    cost_class: free
+    kinds: [text]
+
+  chutes:
+    adapter: openai
+    label: Chutes
+    base_url: https://api.chutes.ai/v1
+    api_key_env: CHUTES_API_KEY
+    models_env: CHUTES_MODELS
+    models: [deepseek-ai/DeepSeek-V3]
+    tier: 3
+    quality: 0.70
+    priority: 29
+    cost_class: free
+    kinds: [text]
+
+  together:
+    adapter: openai
+    label: Together AI
+    base_url: https://api.together.xyz/v1
+    api_key_env: TOGETHER_API_KEY
+    models_env: TOGETHER_MODELS
+    models: [meta-llama/Llama-3.3-70B-Instruct-Turbo]
+    tier: 3
+    quality: 0.76
+    priority: 30
+    cost_class: paid
+    kinds: [text]
+
+  dashscope:
+    adapter: openai
+    label: Alibaba Qwen (DashScope)
+    base_url: https://dashscope-intl.aliyuncs.com/compatible-mode/v1
+    api_key_env: DASHSCOPE_API_KEY
+    models_env: DASHSCOPE_MODELS
+    models: [qwen-plus, qwen-turbo]
+    tier: 3
+    quality: 0.75
+    priority: 31
+    cost_class: free
+    kinds: [text]
+
+  hyperbolic:
+    adapter: openai
+    label: Hyperbolic
+    base_url: https://api.hyperbolic.xyz/v1
+    api_key_env: HYPERBOLIC_API_KEY
+    models_env: HYPERBOLIC_MODELS
+    models: [meta-llama/Llama-3.3-70B-Instruct]
+    tier: 3
+    quality: 0.70
+    priority: 32
+    cost_class: free
+    kinds: [text]
+
+  novita:
+    adapter: openai
+    label: Novita AI
+    base_url: https://api.novita.ai/v3/openai
+    api_key_env: NOVITA_API_KEY
+    models_env: NOVITA_MODELS
+    models: [deepseek/deepseek-v3-0324]
+    tier: 3
+    quality: 0.70
+    priority: 33
+    cost_class: paid
+    kinds: [text]
+
+  perplexity:
+    adapter: openai
+    label: Perplexity
+    base_url: https://api.perplexity.ai
+    api_key_env: PERPLEXITY_API_KEY
+    models_env: PERPLEXITY_MODELS
+    models: [sonar, sonar-pro]
+    tier: 2
+    quality: 0.80
+    priority: 34
+    cost_class: paid
+    kinds: [text]
+
+  ai21:
+    adapter: openai
+    label: AI21 Labs
+    base_url: https://api.ai21.com/studio/v1
+    api_key_env: AI21_API_KEY
+    models_env: AI21_MODELS
+    models: [jamba-large, jamba-mini]
+    tier: 3
+    quality: 0.68
+    priority: 35
+    cost_class: free
+    kinds: [text]
+
+  glhf:
+    adapter: openai
+    label: glhf.chat
+    base_url: https://glhf.chat/api/openai/v1
+    api_key_env: GLHF_API_KEY
+    models_env: GLHF_MODELS
+    models: [hf:meta-llama/Llama-3.3-70B-Instruct]
+    tier: 3
+    quality: 0.66
+    priority: 36
+    cost_class: free
+    kinds: [text]
+
+  llm7:
+    adapter: openai
+    label: LLM7.io
+    base_url: https://api.llm7.io/v1
+    api_key_env: LLM7_API_KEY
+    models_env: LLM7_MODELS
+    models: [gpt-4o-mini]
+    # Sem chave: o endpoint responde com qualquer token. `chave_opcional`
+    # evita que o diagnóstico peça uma credencial que não existe.
+    chave_opcional: true
+    tier: 3
+    quality: 0.60
+    priority: 37
+    cost_class: free
+    kinds: [text]
+
+  ollama_cloud:
+    adapter: openai
+    label: Ollama Cloud
+    base_url: https://ollama.com/v1
+    api_key_env: OLLAMA_CLOUD_API_KEY
+    models_env: OLLAMA_CLOUD_MODELS
+    models: [gpt-oss:120b, deepseek-v3.1:671b]
+    tier: 3
+    quality: 0.70
+    priority: 38
+    cost_class: free
+    kinds: [text]
+
+  openai:
+    adapter: openai
+    label: OpenAI
+    base_url: https://api.openai.com/v1
+    api_key_env: OPENAI_API_KEY
+    models_env: OPENAI_MODELS
+    models: [gpt-4o-mini, gpt-4o]
+    tier: 1
+    quality: 0.90
+    priority: 39
+    cost_class: paid
+    kinds: [text, image]
+
+  azure_openai:
+    adapter: openai
+    label: Azure OpenAI
+    # O endpoint é da sua conta: AZURE_OPENAI_BASE_URL manda.
+    base_url: https://SEU-RECURSO.openai.azure.com/openai/v1
+    base_url_env: AZURE_OPENAI_BASE_URL
+    api_key_env: AZURE_OPENAI_API_KEY
+    models_env: AZURE_OPENAI_MODELS
+    models: []
+    tier: 1
+    quality: 0.88
+    priority: 40
+    cost_class: paid
+    kinds: [text]
+
+  vertex:
+    adapter: openai
+    label: Google Vertex AI
+    base_url: https://us-central1-aiplatform.googleapis.com/v1
+    base_url_env: VERTEX_BASE_URL
+    api_key_env: VERTEX_API_KEY
+    models_env: VERTEX_MODELS
+    models: []
+    tier: 1
+    quality: 0.88
+    priority: 41
+    cost_class: paid
+    kinds: [text]
+
+  bedrock:
+    adapter: openai
+    label: AWS Bedrock
+    base_url: https://bedrock-runtime.us-east-1.amazonaws.com/openai/v1
+    base_url_env: BEDROCK_BASE_URL
+    api_key_env: AWS_BEARER_TOKEN_BEDROCK
+    models_env: BEDROCK_MODELS
+    models: []
+    tier: 1
+    quality: 0.86
+    priority: 42
+    cost_class: paid
+    kinds: [text]
+
+  lmstudio:
+    adapter: openai
+    label: LM Studio (local)
+    base_url: http://localhost:1234/v1
+    base_url_env: LMSTUDIO_BASE_URL
+    api_key_env: LMSTUDIO_API_KEY
+    models_env: LMSTUDIO_MODELS
+    models: []
+    chave_opcional: true
+    tier: 3
+    quality: 0.60
+    priority: 43
+    cost_class: local
+    kinds: [text]
+
+  llamacpp:
+    adapter: openai
+    label: llama.cpp (local)
+    base_url: http://localhost:8080/v1
+    base_url_env: LLAMACPP_BASE_URL
+    api_key_env: LLAMACPP_API_KEY
+    models_env: LLAMACPP_MODELS
+    models: []
+    chave_opcional: true
+    tier: 3
+    quality: 0.58
+    priority: 44
+    cost_class: local
+    kinds: [text]
+
+  vllm:
+    adapter: openai
+    label: vLLM (local)
+    base_url: http://localhost:8000/v1
+    base_url_env: VLLM_BASE_URL
+    api_key_env: VLLM_API_KEY
+    models_env: VLLM_MODELS
+    models: []
+    chave_opcional: true
+    tier: 3
+    quality: 0.62
+    priority: 45
+    cost_class: local
+    kinds: [text]
+
+  # --- Plugar um gateway de terceiros (9Router, OmniRoute, LiteLLM) ---
+  # Eles falam OpenAI num endpoint local, entao entram como mais um provedor:
+  # copie um bloco `adapter: openai` acima, aponte `base_url` para o gateway,
+  # liste em `models` os nomes que ELE expoe e marque `categoria: gateway`.
+  # Se quiser que ele decida tudo, tire os outros do `chain_order` — senao voce
+  # fica com dois roteadores opinando sobre a mesma coisa.
+  fallback:
+    adapter: fallback
+    label: Demo
+    models: [demo]
+    tier: 9
+    quality: 0.05
+    priority: 99
+    cost_class: none
+    kinds: [text]
