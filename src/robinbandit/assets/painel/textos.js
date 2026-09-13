@@ -108,6 +108,36 @@ const TEXTOS = {
     en: 'field goes a nickname for your work — "code", "review" — and RobinBandit learns separately for each one.'
   },
 
+  /* --- primeiros passos (so aparece antes da primeira chamada) --- */
+  'inicio.titulo': {
+    pt: 'Três passos e ele começa a aprender',
+    en: 'Three steps and it starts learning'
+  },
+  'inicio.p1.titulo': { pt: 'Provedores de pé', en: 'Providers up' },
+  'inicio.p1.feito': {
+    pt: '{n} no ar. Quem não tem chave no ambiente fica de fora — é o esperado.',
+    en: '{n} up. Anyone without a key in the environment stays out — that is expected.'
+  },
+  'inicio.p1.falta': {
+    pt: 'Nenhum subiu. Cadastre uma chave em Credenciais, ou instale o Claude Code / Codex para usar pela assinatura.',
+    en: 'None came up. Add a key under Credentials, or install Claude Code / Codex to use them through your subscription.'
+  },
+  'inicio.p2.titulo': { pt: 'Apontar seu agente para cá', en: 'Point your agent here' },
+  'inicio.p2.texto': {
+    pt: 'A aba Conectar entrega a configuração pronta para Claude Code, Codex, Cline, OpenCode ou curl. Copie e cole onde ela indica.',
+    en: 'The Connect tab hands you ready-made configuration for Claude Code, Codex, Cline, OpenCode or curl. Copy it and paste where it says.'
+  },
+  'inicio.p2.feito': {
+    pt: '{quem} já chamou. A fila abaixo passa a mostrar as decisões.',
+    en: '{quem} has called through. The queue below starts showing the decisions.'
+  },
+  'inicio.p3.titulo': { pt: 'Usar', en: 'Use it' },
+  'inicio.p3.texto': {
+    pt: 'A partir da primeira chamada, esta tela mostra quem está na frente e por quê. Antes disso não há o que mostrar.',
+    en: 'From the first call on, this screen shows who is ahead and why. Before that there is nothing to show.'
+  },
+  'inicio.ir_conectar': { pt: 'Abrir a aba Conectar', en: 'Open the Connect tab' },
+
   /* --- comuns --- */
   'comum.lendo':      { pt: 'lendo…',      en: 'reading…' },
   'comum.carregando': { pt: 'carregando…', en: 'loading…' },
