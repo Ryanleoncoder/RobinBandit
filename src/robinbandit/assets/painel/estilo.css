@@ -66,14 +66,14 @@
 
   /* -------------------------------------------------------------- conteudo */
   main { padding: 34px 40px 90px; max-width: 1100px; }
-  .cabeca { margin-bottom: 28px; }
+  .cabeca { margin-bottom: 32px; }
   h1 { font-size: 30px; margin: 0 0 7px; letter-spacing: -.02em; font-weight: 650;
     text-wrap: balance; }
   .cabeca p { margin: 0; color: var(--suave); font-size: 15px; max-width: 62ch; line-height: 1.6; }
 
   h2 {
     font-size: 12px; text-transform: uppercase; letter-spacing: .12em;
-    color: var(--bege-fraco); font-weight: 600; margin: 32px 0 12px;
+    color: var(--bege-fraco); font-weight: 600; margin: 40px 0 14px;
     display: flex; align-items: center; gap: 12px;
   }
   h2 .risco { flex: 1; height: 1px; background: var(--linha-fraca); }
@@ -138,6 +138,25 @@
   .selo.bom { color: var(--verde-claro); border-color: rgba(124,154,127,.4); background: rgba(94,122,97,.1); }
   .selo.atencao { color: var(--ambar); border-color: rgba(224,175,67,.38); background: rgba(224,175,67,.08); }
   .selo.mau { color: var(--ruim); border-color: rgba(201,85,61,.4); background: rgba(201,85,61,.1); }
+
+  /* ------------------------------------------------------- primeiros passos */
+  /* Lista, nao cartoes: sao tres frases curtas em sequencia, e embrulhar cada
+     uma numa superficie propria nao acrescenta hierarquia — so ruido. O `h2`
+     e o mesmo das outras secoes da tela, de proposito. */
+  .passos { list-style: none; margin: 0 0 38px; padding: 0; }
+  .passos li { display: grid; grid-template-columns: 26px 1fr; gap: 14px; padding-bottom: 20px; }
+  .passos li:last-child { padding-bottom: 0; }
+  .passos .n {
+    font-family: var(--mono); font-size: 12px; color: var(--bege-fraco);
+    padding-top: 2px; font-variant-numeric: tabular-nums;
+  }
+  /* Concluido troca o numero pelo visto, e nao so a cor: estado que depende de
+     cor sozinha nao chega a quem nao a distingue. */
+  .passos li.feito .n { color: var(--verde-claro); }
+  .passos strong { display: block; font-size: 14px; font-weight: 600; margin-bottom: 2px; }
+  .passos li.feito strong { color: var(--suave); font-weight: 500; }
+  .passos p { margin: 0; color: var(--suave); font-size: 13px; line-height: 1.6; max-width: 62ch; }
+  .passos .acao { margin-top: 12px; }
 
   /* ------------------------------------------------------------- numeros do topo */
   .placar { display: grid; grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));

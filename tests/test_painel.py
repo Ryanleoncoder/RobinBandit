@@ -405,3 +405,47 @@ def test_todo_data_t_do_html_existe_no_dicionario():
 
     faltando = sorted(usadas - definidas)
     assert not faltando, f"chaves usadas no HTML e ausentes do dicionario: {faltando}"
+
+
+def test_os_blocos_que_o_js_esconde_existem_no_html():
+    """A tela Agora mostra os primeiros passos enquanto nao ha chamada, e
+    esconde os blocos que ficariam vazios. O JS faz isso por id: um id
+    renomeado no HTML quebra a tela em silencio, sem erro em lugar nenhum."""
+    import re
+
+    from robinbandit.painel import pasta_do_painel
+
+    pasta = pasta_do_painel()
+    html = (pasta / "pagina.html").read_text(encoding="utf-8")
+    js = (pasta / "painel.js").read_text(encoding="utf-8")
+
+    lista = re.search(r"\['placar',([^\]]*)\]\.forEach", js)
+    assert lista, "nao achei a lista de blocos escondidos no painel.js"
+    ids = ["placar"] + re.findall(r"'(\w+)'", lista.group(1))
+
+    for alvo in ids:
+        assert f'id="{alvo}"' in html, f"o JS esconde #{alvo}, que nao existe no HTML"
+
+
+def test_cada_bloco_escondido_tem_o_titulo_como_irmao_anterior():
+    """O JS esconde o `h2` de cada bloco pegando `previousElementSibling`. Se
+    alguem puser qualquer coisa entre o titulo e o bloco, o titulo fica sozinho
+    em cima de um espaco vazio."""
+    import re
+
+    from robinbandit.painel import pasta_do_painel
+
+    html = (pasta_do_painel() / "pagina.html").read_text(encoding="utf-8")
+    tela = re.search(r'<section id="tela-agora".*?</section>', html, re.S).group(0)
+
+    # ordem/credito/historico tem titulo; placar abre a tela e nao tem.
+    for alvo in ("ordem", "credito", "historico"):
+        antes = tela.split(f'id="{alvo}"')[0]
+        # Tira a tag que está sendo aberta (`<div class="carta" `) para sobrar
+        # o que veio antes dela. Comparar pela última tag ABERTA acharia o
+        # `<span class="risco">` de dentro do h2, que não é irmão de ninguém.
+        anterior = re.sub(r"<\w+[^<>]*$", "", antes).rstrip()
+        assert anterior.endswith("</h2>"), (
+            f"#{alvo} não vem logo depois de um </h2>. O JS esconde o título "
+            "por previousElementSibling, e pegaria o elemento errado."
+        )
