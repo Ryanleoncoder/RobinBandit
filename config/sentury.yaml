@@ -1,0 +1,20 @@
+# O que o Sentury muda no catálogo do RobinBandit — e só isso.
+#
+# O catálogo dos 40+ provedores mora dentro do pacote (`robinbandit/padrao.yaml`),
+# porque quem sabe qual provedor existe é o RobinBandit. Antes ele estava aqui,
+# e este arquivo era uma cópia de 700 linhas que envelhecia sozinha.
+herda: padrao
+
+version: 1
+agent_mode: sentury
+
+# Segredos nunca são versionados. O YAML guarda somente referências.
+# Precedência em runtime: cofre Robin > ambiente > Settings do agente.
+secrets:
+  vault_path_env: SENTURY_VAULT_PATH
+  account_config_path_env: SENTURY_ACCOUNTS_PATH
+
+# O OpenRouter mostra no ranking dele quem chamou; aqui quem chama é o Sentury.
+providers:
+  openrouter:
+    extra_headers: {HTTP-Referer: https://sentury-intelligence.onrender.com, X-Title: Sentury Intelligence}

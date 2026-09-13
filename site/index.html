@@ -1,0 +1,1015 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="RobinBandit is an adaptive LLM router: 41 providers in the box, Thompson sampling over quality, latency, health and quota, and a panel that shows why the queue looks the way it does." />
+  <meta name="theme-color" content="#0B0F14" />
+  <title>RobinBandit — Adaptive LLM Routing</title>
+
+  <meta property="og:title" content="RobinBandit — Adaptive LLM Routing" />
+  <meta property="og:description" content="41 providers in the box. The router reorders them from what actually happened: quality, latency, health and quota." />
+  <meta property="og:type" content="website" />
+  <meta property="og:image" content="imagens/painel-agora.png" />
+
+  <!--
+    Images resolve to imagens/ and robinbandit_logo1.png at the site root.
+    .github/workflows/pages.yml copies them there from docs/imagens/ and
+    assets/ at publish time, so the PNGs are not duplicated in the repo.
+    Opening this file straight out of site/ shows broken images; that is
+    expected.
+  -->
+  <style>
+    :root {
+      --bg: #0B0F14;
+      --surface: #151D27;
+      --cream: #EFE3D2;
+      --green-soft: #739076;
+      --gold: #E0AF43;
+      --white: #F8F7F4;
+      --muted: #A9B0B8;
+      --border: rgba(239, 227, 210, 0.09);
+      --shadow: 0 18px 50px rgba(0,0,0,.35);
+      --max: 1120px;
+      --mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      background:
+        radial-gradient(circle at 18% 8%, rgba(94,122,97,.16), transparent 34%),
+        radial-gradient(circle at 88% 20%, rgba(224,175,67,.08), transparent 24%),
+        var(--bg);
+      color: var(--white);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.6;
+    }
+
+    a { color: inherit; text-decoration: none; }
+    img { max-width: 100%; display: block; }
+
+    .container { width: min(calc(100% - 40px), var(--max)); margin: 0 auto; }
+
+    .nav {
+      position: sticky; top: 0; z-index: 20;
+      backdrop-filter: blur(16px);
+      background: rgba(11, 15, 20, .76);
+      border-bottom: 1px solid var(--border);
+    }
+    .nav-inner { min-height: 72px; display: flex; align-items: center; justify-content: space-between; gap: 20px; }
+    .brand { display: flex; align-items: center; gap: 12px; font-weight: 800; letter-spacing: .14em; font-size: .92rem; }
+    .brand-mark { width: 34px; height: 34px; object-fit: contain; }
+    .brand .b { color: var(--green-soft); }
+    .nav-links { display: flex; align-items: center; gap: 24px; color: var(--muted); font-size: .93rem; }
+    .nav-links a:hover { color: var(--cream); }
+
+    .hero {
+      display: grid; grid-template-columns: 1.02fr .98fr;
+      align-items: center; gap: 56px; padding: 80px 0 72px;
+    }
+
+    .eyebrow {
+      display: inline-flex; align-items: center; gap: 9px;
+      padding: 7px 11px; border-radius: 999px;
+      border: 1px solid rgba(94,122,97,.35); background: rgba(94,122,97,.08);
+      color: #BFD0C1; font-size: .82rem; font-weight: 700;
+      letter-spacing: .08em; text-transform: uppercase;
+    }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green-soft); box-shadow: 0 0 0 5px rgba(94,122,97,.12); }
+
+    h1 { margin: 22px 0; font-size: clamp(2.9rem, 6vw, 5.4rem); line-height: .92; letter-spacing: -.055em; }
+    h1 .cream { color: var(--cream); }
+    h1 .green { color: var(--green-soft); }
+
+    .lead { color: var(--muted); font-size: clamp(1.02rem, 1.4vw, 1.18rem); max-width: 640px; margin-bottom: 30px; }
+    .lead strong { color: var(--cream); font-weight: 650; }
+
+    .actions { display: flex; flex-wrap: wrap; gap: 14px; margin-bottom: 34px; }
+    .btn {
+      min-height: 48px; padding: 0 19px; border-radius: 12px;
+      display: inline-flex; align-items: center; justify-content: center;
+      font-weight: 750; border: 1px solid transparent;
+      transition: transform .2s ease, border-color .2s ease;
+    }
+    .btn:hover { transform: translateY(-2px); }
+    .btn-primary { background: var(--cream); color: #12161B; }
+    .btn-secondary { border-color: var(--border); background: rgba(255,255,255,.025); color: var(--white); }
+    .btn-secondary:hover { border-color: rgba(239,227,210,.22); }
+
+    .metrics { display: flex; flex-wrap: wrap; gap: 12px; }
+    .chip {
+      padding: 8px 11px; border-radius: 999px;
+      background: rgba(255,255,255,.035); border: 1px solid var(--border);
+      color: #C4CBD1; font-size: .83rem;
+    }
+    .chip b { color: var(--cream); font-weight: 750; }
+
+    .shot {
+      position: relative; border-radius: 20px; overflow: hidden;
+      border: 1px solid var(--border); box-shadow: var(--shadow);
+      background: #0d1116;
+    }
+    .shot img { width: 100%; }
+    figure { margin: 0; }
+    figcaption { margin-top: 12px; color: var(--muted); font-size: .88rem; }
+    figcaption b { color: var(--cream); font-weight: 650; }
+
+    /* Provider logo marquee. Two identical tracks scroll side by side; when the
+       first has moved exactly its own width, the second is sitting where it
+       started, so the loop has no seam. padding-right matches the gap, or the
+       join would swallow one gap every lap. */
+    .marquee-wrap { padding: 10px 0 46px; }
+    .marquee {
+      display: flex; overflow: hidden; user-select: none;
+      -webkit-mask-image: linear-gradient(90deg, transparent, #000 7%, #000 93%, transparent);
+      mask-image: linear-gradient(90deg, transparent, #000 7%, #000 93%, transparent);
+    }
+    .marquee .track {
+      display: flex; align-items: center; gap: 58px; padding-right: 58px;
+      margin: 0; list-style: none; flex-shrink: 0;
+      animation: marquee 46s linear infinite;
+    }
+    .marquee + .marquee { margin-top: 34px; }
+    /* A segunda linha corre ao contrário: duas esteiras no mesmo sentido
+       parecem uma imagem só arrastando. */
+    .marquee--reverse .track { animation-direction: reverse; animation-duration: 54s; }
+    .marquee:hover .track { animation-play-state: paused; }
+    .marquee li { display: grid; place-items: center; }
+    .marquee img {
+      height: 30px; width: auto; opacity: .62;
+      /* github, groq, openai, openrouter and ollama ship as currentColor. */
+      color: var(--cream);
+      transition: opacity .25s ease;
+    }
+    .marquee li:hover img { opacity: 1; }
+    @keyframes marquee { to { transform: translateX(-100%); } }
+
+    @media (prefers-reduced-motion: reduce) {
+      .marquee .track { animation: none; }
+      .marquee { flex-wrap: wrap; justify-content: center; -webkit-mask-image: none; mask-image: none; }
+      .marquee .track:last-child { display: none; }
+      .marquee .track { flex-wrap: wrap; justify-content: center; row-gap: 28px; }
+    }
+
+
+    /* ---- live demo ---------------------------------------------------- */
+    .demo {
+      margin-top: 42px; border-radius: 22px; overflow: hidden;
+      border: 1px solid var(--border); background: #0A0E13;
+      box-shadow: var(--shadow);
+    }
+    .demo-bar {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 16px; flex-wrap: wrap;
+      padding: 15px 20px; border-bottom: 1px solid var(--border);
+      background: rgba(255,255,255,.02);
+    }
+    .demo-title {
+      font-size: .74rem; font-weight: 800; letter-spacing: .14em;
+      text-transform: uppercase; color: var(--muted);
+    }
+    .demo-title b { color: var(--green-soft); }
+    .demo-stats { display: flex; gap: 18px; align-items: center; font-family: var(--mono); font-size: .8rem; color: var(--muted); }
+    .demo-stats b { color: var(--cream); font-weight: 650; }
+    .demo-btn {
+      font: inherit; font-size: .78rem; cursor: pointer;
+      padding: 6px 12px; border-radius: 8px; color: var(--muted);
+      background: rgba(255,255,255,.04); border: 1px solid var(--border);
+      transition: color .2s, border-color .2s;
+    }
+    .demo-btn:hover { color: var(--cream); border-color: rgba(239,227,210,.28); }
+
+    .queue { position: relative; margin: 0; padding: 10px; list-style: none; transition: height .4s ease; }
+    .row {
+      position: absolute; left: 10px; right: 10px; height: 52px;
+      display: grid; align-items: center; gap: 12px;
+      grid-template-columns: 20px 1.5fr 92px 1fr 74px 64px;
+      padding: 0 14px; border-radius: 12px;
+      background: rgba(255,255,255,.022); border: 1px solid transparent;
+      font-size: .87rem;
+      transition: transform .55s cubic-bezier(.22,.8,.25,1), background .3s, border-color .3s, opacity .3s;
+      cursor: pointer;
+    }
+    .row:hover { background: rgba(255,255,255,.05); border-color: var(--border); }
+    .row.first { background: rgba(94,122,97,.11); border-color: rgba(94,122,97,.3); }
+    .row.cooling { opacity: .5; }
+    .row.hit { animation: hit .5s ease; }
+    @keyframes hit { 0% { background: rgba(224,175,67,.22); } 100% {} }
+
+    .rank { font-family: var(--mono); font-size: .76rem; color: #5C6873; }
+    .who { display: flex; align-items: center; gap: 9px; min-width: 0; }
+    .who img { height: 17px; width: 17px; object-fit: contain; color: var(--cream); opacity: .85; flex-shrink: 0; }
+    .who span { font-family: var(--mono); font-size: .83rem; color: var(--cream); overflow: hidden; text-overflow: ellipsis; }
+    .tag {
+      justify-self: start; font-size: .68rem; font-weight: 700; letter-spacing: .05em;
+      text-transform: uppercase; padding: 3px 8px; border-radius: 999px;
+      border: 1px solid; white-space: nowrap;
+    }
+    .tag.ok   { color: #9DBBA0; border-color: rgba(94,122,97,.45); background: rgba(94,122,97,.12); }
+    .tag.warn { color: #E0AF43; border-color: rgba(224,175,67,.4);  background: rgba(224,175,67,.1); }
+    .tag.bad  { color: #D98A76; border-color: rgba(217,119,87,.4);  background: rgba(217,119,87,.1); }
+    .tag.idle { color: #7F8992; border-color: var(--border); }
+
+    .bar { height: 5px; border-radius: 99px; background: rgba(255,255,255,.07); overflow: hidden; }
+    .bar i { display: block; height: 100%; border-radius: 99px; background: var(--green-soft); transition: width .5s ease, background .3s; }
+    .row.cooling .bar i { background: #8A6F55; }
+    .num { font-family: var(--mono); font-size: .78rem; color: var(--muted); text-align: right; }
+    .num.err { color: #D98A76; }
+    .why { font-family: var(--mono); font-size: .74rem; color: #6C7680; text-align: right; white-space: nowrap; }
+
+    .demo-foot {
+      padding: 13px 20px; border-top: 1px solid var(--border);
+      color: #6C7680; font-size: .82rem; display: flex; justify-content: space-between; gap: 14px; flex-wrap: wrap;
+    }
+    .demo-foot b { color: var(--cream); font-weight: 600; }
+
+    @media (max-width: 720px) {
+      .row { grid-template-columns: 16px 1fr 78px 58px; padding: 0 11px; font-size: .8rem; }
+      .row .bar, .row .why { display: none; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .row { transition: none; }
+      .row.hit { animation: none; }
+    }
+
+    .section { padding: 92px 0; border-top: 1px solid var(--border); }
+    .section-label { color: var(--gold); font-weight: 800; text-transform: uppercase; letter-spacing: .13em; font-size: .78rem; margin-bottom: 12px; }
+    h2 { font-size: clamp(1.9rem, 3.6vw, 3.1rem); line-height: 1.04; letter-spacing: -.04em; margin: 0 0 18px; max-width: 780px; }
+    .section-copy { color: var(--muted); max-width: 720px; font-size: 1.02rem; }
+    .section-copy code { font-family: var(--mono); font-size: .92em; color: var(--cream); }
+
+    .grid-3 { margin-top: 42px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
+    .card {
+      padding: 25px; border-radius: 20px;
+      background: linear-gradient(180deg, var(--surface), rgba(21,29,39,.72));
+      border: 1px solid var(--border);
+    }
+    .icon {
+      width: 42px; height: 42px; border-radius: 12px;
+      display: grid; place-items: center;
+      background: rgba(94,122,97,.11); border: 1px solid rgba(94,122,97,.22);
+      color: var(--green-soft); font-weight: 900; margin-bottom: 22px;
+    }
+    .card h3 { margin: 0 0 10px; font-size: 1.1rem; }
+    .card p { margin: 0; color: var(--muted); font-size: .94rem; }
+    .card code, .flow-step code { font-family: var(--mono); font-size: .9em; color: var(--cream); }
+
+    .formula {
+      margin-top: 42px; padding: 26px 28px; border-radius: 18px;
+      border: 1px solid var(--border); background: #090D12;
+      font-family: var(--mono); font-size: .88rem; line-height: 1.9;
+      overflow-x: auto; color: #D9E2E7;
+    }
+    .formula .plus { color: #5C6873; }
+    .formula .up { color: var(--green-soft); }
+    .formula .down { color: #C98A7A; }
+
+    .signals { margin-top: 26px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+    .signal { padding: 16px 18px; border-radius: 14px; background: rgba(255,255,255,.025); border: 1px solid var(--border); }
+    .signal b { display: block; color: var(--cream); font-size: .93rem; margin-bottom: 4px; }
+    .signal span { color: var(--muted); font-size: .84rem; }
+    .signal code { font-family: var(--mono); font-size: .92em; }
+
+    .flow { margin-top: 42px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+    .flow-step { padding: 22px; border-radius: 18px; background: rgba(255,255,255,.025); border: 1px solid var(--border); }
+    .flow-step strong { display: block; color: var(--cream); margin-bottom: 8px; }
+    .flow-step span { color: var(--muted); font-size: .9rem; }
+    .flow-step .n { color: var(--gold); font-size: .78rem; margin-bottom: 20px; font-weight: 900; letter-spacing: .08em; }
+
+    .shots { margin-top: 46px; display: grid; grid-template-columns: 1fr 1fr; gap: 26px; }
+
+    .code-wrap { margin-top: 38px; display: grid; grid-template-columns: 1fr 1fr; gap: 20px; align-items: start; }
+    pre {
+      margin: 0; padding: 24px; overflow: auto; border-radius: 18px;
+      border: 1px solid var(--border); background: #090D12; color: #D9E2E7;
+      font-family: var(--mono); font-size: .85rem; line-height: 1.7;
+    }
+    .code-head {
+      display: flex; align-items: center; gap: 9px;
+      margin-bottom: 12px; color: var(--muted); font-size: .84rem;
+    }
+    .code-head b { color: var(--cream); font-weight: 650; }
+    .code-head code { font-family: var(--mono); }
+    .accent { color: var(--gold); }
+    .accent-green { color: #87A28A; }
+    .cmt { color: #5C6873; }
+    .str { color: #C9B98A; }
+
+    .providers { margin-top: 38px; display: flex; flex-wrap: wrap; gap: 8px; }
+    .p-tag {
+      padding: 6px 11px; border-radius: 8px; font-family: var(--mono);
+      font-size: .82rem; color: #C4CBD1;
+      background: rgba(255,255,255,.03); border: 1px solid var(--border);
+    }
+    .p-tag.free { border-color: rgba(94,122,97,.4); color: #BFD0C1; }
+    .p-tag.sub { border-color: rgba(224,175,67,.4); color: #E8CC8C; }
+    .legend { margin-top: 18px; display: flex; flex-wrap: wrap; gap: 20px; color: var(--muted); font-size: .85rem; }
+    .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 7px; }
+
+    .cta {
+      margin: 0 auto; max-width: 900px; text-align: center;
+      padding: 68px 28px 0; border-radius: 28px; border: 1px solid var(--border);
+      background: radial-gradient(circle at 50% 0%, rgba(94,122,97,.16), transparent 44%), var(--surface);
+      overflow: hidden;
+    }
+    .cta h2 { margin-left: auto; margin-right: auto; }
+    .cta p { color: var(--muted); max-width: 640px; margin: 0 auto 28px; }
+
+    /* The panel rises out of the card's bottom edge: cropped, faded into the
+       background, and it lifts the rest of the way on hover. */
+    .cta-shot {
+      display: block; margin: 52px auto 0; max-width: 760px;
+      border-radius: 16px 16px 0 0; border: 1px solid var(--border);
+      border-bottom: none; overflow: hidden;
+      opacity: .78; transform: translateY(14px);
+      box-shadow: 0 -12px 50px rgba(0,0,0,.45);
+      -webkit-mask-image: linear-gradient(#000 58%, transparent);
+      mask-image: linear-gradient(#000 58%, transparent);
+      transition: opacity .45s ease, transform .45s ease, box-shadow .45s ease;
+    }
+    .cta-shot:hover, .cta-shot:focus-visible {
+      opacity: 1; transform: translateY(0);
+      box-shadow: 0 -14px 60px rgba(94,122,97,.22), 0 -12px 50px rgba(0,0,0,.5);
+      outline: none;
+    }
+    .cta-shot img { width: 100%; display: block; }
+
+    @media (prefers-reduced-motion: reduce) {
+      .cta-shot { transition: none; }
+    }
+
+    footer { border-top: 1px solid var(--border); padding: 28px 0 38px; color: #7F8992; font-size: .86rem; }
+    .footer-inner { display: flex; justify-content: space-between; gap: 20px; flex-wrap: wrap; }
+
+    @media (max-width: 980px) {
+      .hero { grid-template-columns: 1fr; }
+      .grid-3, .flow, .code-wrap, .shots { grid-template-columns: 1fr; }
+      .signals { grid-template-columns: 1fr 1fr; }
+      .nav-links a:not(.github) { display: none; }
+    }
+    @media (max-width: 560px) {
+      .container { width: min(calc(100% - 26px), var(--max)); }
+      .hero { padding-top: 52px; gap: 34px; }
+      .section { padding: 68px 0; }
+      .signals { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <nav class="nav">
+    <div class="container nav-inner">
+      <a href="#top" class="brand">
+        <img class="brand-mark" src="robinbandit_logo1.png" alt="" />
+        ROBIN<span class="b">BANDIT</span>
+      </a>
+      <div class="nav-links">
+        <a href="#why">Why</a>
+        <a href="#how">How it works</a>
+        <a href="#watch">Watch it</a>
+        <a href="#panel">The panel</a>
+        <a href="#quickstart">Quickstart</a>
+        <a class="github" href="https://github.com/Ryanleoncoder/RobinBandit">GitHub &#8599;</a>
+      </div>
+    </div>
+  </nav>
+
+  <main id="top">
+    <section class="container hero">
+      <div>
+        <div class="eyebrow"><span class="dot"></span> Adaptive LLM routing</div>
+        <h1><span class="cream">Route smarter.</span><br><span class="green">Learn every call.</span></h1>
+        <p class="lead">
+          A fixed fallback chain has no memory: the provider that just returned a
+          429 is still first in line on the next call. RobinBandit reorders
+          providers from what actually happened &mdash; <strong>quality, latency,
+          health and quota</strong> &mdash; and shows you why.
+        </p>
+        <div class="actions">
+          <a class="btn btn-primary" href="https://github.com/Ryanleoncoder/RobinBandit">View on GitHub</a>
+          <a class="btn btn-secondary" href="#watch">Watch it decide</a>
+        </div>
+        <div class="metrics">
+          <span class="chip"><b>41</b> providers in the box</span>
+          <span class="chip"><b>13</b> with a free tier</span>
+          <span class="chip"><b>2</b> by subscription, no API key</span>
+          <span class="chip">core has <b>zero</b> dependencies</span>
+        </div>
+      </div>
+
+      <figure>
+        <div class="shot"><img src="imagens/painel-agora.png" alt="The RobinBandit panel showing the current provider queue with state, quality, success ratio, latency and the reason each provider is waiting" /></div>
+        <figcaption>
+          The queue right now. <b>groq</b> has 140 good calls and 6 errors,
+          <b>claude_code</b> 58 and 1 &mdash; both are cooling down, and the last
+          column says for how long. <b>cerebras</b> took the lead with 0 errors at
+          324ms. Nobody edited a config file to make that happen.
+        </figcaption>
+      </figure>
+    </section>
+
+    <section class="container marquee-wrap" aria-label="The 41 providers in the catalog">
+      <div class="marquee">
+        <ul class="track">
+          <li><img src="logos/groq.svg" alt="Groq" loading="lazy" /></li>
+          <li><img src="logos/gemini.svg" alt="Google Gemini" loading="lazy" /></li>
+          <li><img src="logos/github.svg" alt="GitHub Models" loading="lazy" /></li>
+          <li><img src="logos/cerebras.svg" alt="Cerebras" loading="lazy" /></li>
+          <li><img src="logos/openrouter.svg" alt="OpenRouter" loading="lazy" /></li>
+          <li><img src="logos/chatgpt_codex.svg" alt="ChatGPT Codex" loading="lazy" /></li>
+          <li><img src="logos/mistral.svg" alt="Mistral" loading="lazy" /></li>
+          <li><img src="logos/cohere.svg" alt="Cohere" loading="lazy" /></li>
+          <li><img src="logos/sambanova.svg" alt="SambaNova" loading="lazy" /></li>
+          <li><img src="logos/deepinfra.svg" alt="DeepInfra" loading="lazy" /></li>
+          <li><img src="logos/fireworks.svg" alt="Fireworks" loading="lazy" /></li>
+          <li><img src="logos/huggingface.svg" alt="Hugging Face" loading="lazy" /></li>
+          <li><img src="logos/claude.svg" alt="Anthropic Claude" loading="lazy" /></li>
+          <li><img src="logos/ollama.svg" alt="Ollama" loading="lazy" /></li>
+          <li><img src="logos/claude_code.svg" alt="Claude Code" loading="lazy" /></li>
+          <li><img src="logos/nvidia.svg" alt="NVIDIA" loading="lazy" /></li>
+          <li><img src="logos/deepseek.svg" alt="DeepSeek" loading="lazy" /></li>
+          <li><img src="logos/siliconflow.svg" alt="SiliconFlow" loading="lazy" /></li>
+          <li><img src="logos/zhipu.svg" alt="Zhipu" loading="lazy" /></li>
+          <li><img src="logos/xai.svg" alt="xAI" loading="lazy" /></li>
+          <li><img src="logos/moonshot.svg" alt="Moonshot" loading="lazy" /></li>
+        </ul>
+        <ul class="track" aria-hidden="true">
+          <li><img src="logos/groq.svg" alt="" loading="lazy" /></li>
+          <li><img src="logos/gemini.svg" alt="" loading="lazy" /></li>
+          <li><img src="logos/github.svg" alt="" loading="lazy" /></li>
+          <li><img src="logos/cerebras.svg" alt="" loading="lazy" /></li>
+          <li><img src="logos/openrouter.svg" alt="" loading="lazy" /></li>
+          <li><img src="logos/chatgpt_codex.svg" alt="" loading="lazy" /></li>
+          <li><img src="logos/mistral.svg" alt="" loading="lazy" /></li>
+          <li><img src="logos/cohere.svg" alt="" loading="lazy" /></li>
+          <li><img src="logos/sambanova.svg" alt="" loading="lazy" /></li>
+          <li><img src="logos/deepinfra.svg" alt="" loading="lazy" /></li>
+          <li><img src="logos/fireworks.svg" alt="" loading="lazy" /></li>
+          <li><img src="logos/huggingface.svg" alt="" loading="lazy" /></li>
+          <li><img src="logos/claude.svg" alt="" loading="lazy" /></li>
+          <li><img src="logos/ollama.svg" alt="" loading="lazy" /></li>
+          <li><img src="logos/claude_code.svg" alt="" loading="lazy" /></li>
+          <li><img src="logos/nvidia.svg" alt="" loading="lazy" /></li>
+          <li><img src="logos/deepseek.svg" alt="" loading="lazy" /></li>
+          <li><img src="logos/siliconflow.svg" alt="" loading="lazy" /></li>
+          <li><img src="logos/zhipu.svg" alt="" loading="lazy" /></li>
+          <li><img src="logos/xai.svg" alt="" loading="lazy" /></li>
+          <li><img src="logos/moonshot.svg" alt="" loading="lazy" /></li>
+        </ul>
+      </div>
+      <div class="marquee marquee--reverse">
+        <ul class="track">
+          <li><img src="logos/modelscope.svg" alt="ModelScope" loading="lazy" /></li>
+          <li><img src="logos/nebius.svg" alt="Nebius" loading="lazy" /></li>
+          <li><img src="logos/nscale.svg" alt="nscale" loading="lazy" /></li>
+          <li><img src="logos/chutes.svg" alt="Chutes" loading="lazy" /></li>
+          <li><img src="logos/together.svg" alt="Together" loading="lazy" /></li>
+          <li><img src="logos/dashscope.svg" alt="DashScope" loading="lazy" /></li>
+          <li><img src="logos/hyperbolic.svg" alt="Hyperbolic" loading="lazy" /></li>
+          <li><img src="logos/novita.svg" alt="Novita" loading="lazy" /></li>
+          <li><img src="logos/perplexity.svg" alt="Perplexity" loading="lazy" /></li>
+          <li><img src="logos/ai21.svg" alt="AI21" loading="lazy" /></li>
+          <li><img src="logos/glhf.svg" alt="glhf" loading="lazy" /></li>
+          <li><img src="logos/llm7.svg" alt="LLM7" loading="lazy" /></li>
+          <li><img src="logos/ollama_cloud.svg" alt="Ollama Cloud" loading="lazy" /></li>
+          <li><img src="logos/openai.svg" alt="OpenAI" loading="lazy" /></li>
+          <li><img src="logos/azure_openai.svg" alt="Azure OpenAI" loading="lazy" /></li>
+          <li><img src="logos/vertex.svg" alt="Google Vertex" loading="lazy" /></li>
+          <li><img src="logos/bedrock.svg" alt="AWS Bedrock" loading="lazy" /></li>
+          <li><img src="logos/lmstudio.svg" alt="LM Studio" loading="lazy" /></li>
+          <li><img src="logos/llamacpp.svg" alt="llama.cpp" loading="lazy" /></li>
+          <li><img src="logos/vllm.svg" alt="vLLM" loading="lazy" /></li>
+        </ul>
+        <ul class="track" aria-hidden="true">
+          <li><img src="logos/modelscope.svg" alt="" loading="lazy" /></li>
+          <li><img src="logos/nebius.svg" alt="" loading="lazy" /></li>
+          <li><img src="logos/nscale.svg" alt="" loading="lazy" /></li>
+          <li><img src="logos/chutes.svg" alt="" loading="lazy" /></li>
+          <li><img src="logos/together.svg" alt="" loading="lazy" /></li>
+          <li><img src="logos/dashscope.svg" alt="" loading="lazy" /></li>
+          <li><img src="logos/hyperbolic.svg" alt="" loading="lazy" /></li>
+          <li><img src="logos/novita.svg" alt="" loading="lazy" /></li>
+          <li><img src="logos/perplexity.svg" alt="" loading="lazy" /></li>
+          <li><img src="logos/ai21.svg" alt="" loading="lazy" /></li>
+          <li><img src="logos/glhf.svg" alt="" loading="lazy" /></li>
+          <li><img src="logos/llm7.svg" alt="" loading="lazy" /></li>
+          <li><img src="logos/ollama_cloud.svg" alt="" loading="lazy" /></li>
+          <li><img src="logos/openai.svg" alt="" loading="lazy" /></li>
+          <li><img src="logos/azure_openai.svg" alt="" loading="lazy" /></li>
+          <li><img src="logos/vertex.svg" alt="" loading="lazy" /></li>
+          <li><img src="logos/bedrock.svg" alt="" loading="lazy" /></li>
+          <li><img src="logos/lmstudio.svg" alt="" loading="lazy" /></li>
+          <li><img src="logos/llamacpp.svg" alt="" loading="lazy" /></li>
+          <li><img src="logos/vllm.svg" alt="" loading="lazy" /></li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="section" id="why">
+      <div class="container">
+        <div class="section-label">Why RobinBandit</div>
+        <h2>A fallback list only knows the order you typed.</h2>
+        <p class="section-copy">
+          Provider A fails, you try B, then C. Next call, A is first again &mdash;
+          even though it has been slow for an hour, even though its credit ran out
+          ten minutes ago. The enemies here are <code>quota</code>,
+          <code>cost</code>, <code>latency</code> and <code>quality drift</code>,
+          and none of them announce themselves in a status code.
+        </p>
+
+        <figure style="margin-top:42px">
+          <div class="shot"><img src="imagens/dia-ruim.png" alt="Thirty days per provider: gemini at 98.46% with two bad days from 429s, claude_code at 97.3% with one 529 overloaded day, cerebras and groq with none" /></div>
+          <figcaption>
+            Thirty days, four providers, none of them broken &mdash; all four clear
+            97%. Failure just is not spread evenly: it clumps into days, with a
+            reason attached (<code>429 rate limit</code>, <code>529 overloaded</code>).
+            On one of those days <b>gemini</b> was the worst possible pick while
+            <b>groq</b> ran at 100%. A fixed order has no way to know that.
+          </figcaption>
+        </figure>
+
+        <div class="grid-3">
+          <article class="card">
+            <div class="icon">&#8623;</div>
+            <h3>Evidence, not order</h3>
+            <p>Every call updates a Beta posterior for that (context, provider). The next decision is drawn from what the router has actually observed.</p>
+          </article>
+          <article class="card">
+            <div class="icon">&#9678;</div>
+            <h3>One cell per context</h3>
+            <p>A context string splits learning: <code>codigo</code> and <code>triagem</code> can settle on different providers, because they are different jobs.</p>
+          </article>
+          <article class="card">
+            <div class="icon">&#8644;</div>
+            <h3>Degradation is a signal</h3>
+            <p>429s, exhausted credit and latency spikes push a provider down and into cooldown &mdash; without removing it from the chain if everything else fails too.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="how">
+      <div class="container">
+        <div class="section-label">How it works</div>
+        <h2>One score, eight signals, sampled rather than averaged.</h2>
+        <p class="section-copy">
+          On every <code>order()</code> each provider gets a score. Quality and
+          health are Thompson-sampled from independent Beta posteriors &mdash; the
+          draw is what keeps the router exploring instead of locking onto the first
+          thing that worked.
+        </p>
+
+        <div class="formula">score = w_q * <span class="up">quality_thompson</span>
+      <span class="plus">+</span> w_l * (1 - <span class="up">latency_norm</span>)
+      <span class="plus">+</span> w_s * <span class="up">health_thompson</span>
+      <span class="plus">+</span> <span class="up">tier_bonus</span> <span class="plus">+</span> <span class="up">priority_bonus</span> <span class="plus">+</span> <span class="up">profile_bonus</span>
+      <span class="plus">-</span> <span class="down">cost_penalty</span> <span class="plus">-</span> <span class="down">quota_penalty</span> <span class="plus">-</span> <span class="down">inflight_penalty</span></div>
+
+        <div class="signals">
+          <div class="signal"><b>quality</b><span>Thompson sampling per (context, provider)</span></div>
+          <div class="signal"><b>latency</b><span>Peak EWMA &mdash; a spike lands now, recovery is gradual</span></div>
+          <div class="signal"><b>health</b><span>a separate Beta, so an HTTP 200 never raises quality</span></div>
+          <div class="signal"><b>quota</b><span>used when the provider reports what is left</span></div>
+          <div class="signal"><b>inflight</b><span>open calls, capped at 0.15 &mdash; a nudge, not a balancer</span></div>
+          <div class="signal"><b>tier &amp; priority</b><span>your declared preference, as bonus or as barrier</span></div>
+          <div class="signal"><b>cost</b><span>a penalty per declared <code>cost_class</code></span></div>
+          <div class="signal"><b>profile</b><span>per-task preference: analysis, coding, and so on</span></div>
+        </div>
+
+        <div class="flow">
+          <div class="flow-step">
+            <div class="n">01 / ORDER</div>
+            <strong>Score the chain</strong>
+            <span>Each provider is scored for this context. Providers in cooldown sink to the end, but stay reachable if the rest fail too.</span>
+          </div>
+          <div class="flow-step">
+            <div class="n">02 / CALL</div>
+            <strong>Try in order</strong>
+            <span>Models inside a provider are tried top-down, stopping at the first one that answers.</span>
+          </div>
+          <div class="flow-step">
+            <div class="n">03 / OBSERVE</div>
+            <strong>Classify the outcome</strong>
+            <span>Rate limit, exhausted credit, timeout &mdash; read from a table, because the wording changes whenever a provider feels like it.</span>
+          </div>
+          <div class="flow-step">
+            <div class="n">04 / LEARN</div>
+            <strong>Reinforce, with decay</strong>
+            <span>Posteriors update at <code>decay = 0.99</code> under a mass ceiling, so old evidence fades and recent change lands.</span>
+          </div>
+        </div>
+
+        <p class="section-copy" style="margin-top:32px">
+          No <code>torch</code>, no <code>sklearn</code>, no <code>numpy</code>.
+          This is Bayesian reinforcement learning, and the core runs on the Python
+          standard library alone.
+          <a class="accent-green" href="https://github.com/Ryanleoncoder/RobinBandit/blob/main/docs/como-aprende.md">Read how it learns &rarr;</a>
+        </p>
+      </div>
+    </section>
+
+    <section class="section" id="watch">
+      <div class="container">
+        <div class="section-label">See it decide</div>
+        <h2>This queue is not a screenshot.</h2>
+        <p class="section-copy">
+          It is running the router&rsquo;s own arithmetic in your browser: a Beta
+          posterior per provider, sampled on every call, weighted
+          <code>0.40 / 0.30 / 0.30</code> across quality, latency and health &mdash;
+          the same defaults the Python router ships with. Every provider here has
+          a true reliability it never reveals; the queue has to find it out by
+          being wrong first.
+        </p>
+
+        <div class="demo">
+          <div class="demo-bar">
+            <div class="demo-title">the queue <b>right now</b></div>
+            <div class="demo-stats">
+              <span><b id="d-calls">0</b> calls</span>
+              <span><b id="d-up">6</b>/6 up</span>
+              <button class="demo-btn" id="d-toggle" type="button">pause</button>
+            </div>
+          </div>
+
+          <ul class="queue" id="d-queue"></ul>
+
+          <div class="demo-foot">
+            <span>Click any provider to start rate-limiting it &mdash; watch it fall, and come back.</span>
+            <span id="d-note">warming up&hellip;</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="panel">
+      <div class="container">
+        <div class="section-label">The panel</div>
+        <h2>It shows the decision. It does not recompute it.</h2>
+        <p class="section-copy">
+          <code>robinbandit serve</code> ships a panel at <code>/painel</code>,
+          served by the package itself. Everything on it comes from the router
+          &mdash; a panel that does its own math shows one thing while the router
+          decides another. <em>(The UI in these shots is Portuguese.)</em>
+        </p>
+
+        <div class="shots">
+          <figure>
+            <div class="shot"><img src="imagens/painel-provedores.png" alt="Providers grouped by tier, with a choice between letting the bandit learn and letting the tier decide" /></div>
+            <figcaption><b>Providers.</b> You pick what <code>tier</code> means: a bonus the bandit may overrule, or a hard barrier &mdash; &ldquo;try these first even if they fail, only then spend my credits&rdquo;.</figcaption>
+          </figure>
+          <figure>
+            <div class="shot"><img src="imagens/painel-janelas.png" alt="Subscription windows for chatgpt_codex and claude_code, each showing the time left in its five-hour block" /></div>
+            <figcaption><b>Windows.</b> A subscription does not get slow when it runs out &mdash; it stops, and returns at a knowable time. This is how much of each 5h block is left.</figcaption>
+          </figure>
+          <figure>
+            <div class="shot"><img src="imagens/painel-uso.png" alt="Token usage: a thirty-day total, call count, and a one-square-per-day calendar for the year" /></div>
+            <figcaption><b>Usage.</b> Providers already report what a response cost; that number used to be read once and thrown away. Kept in tokens, not currency &mdash; price tables go stale quietly.</figcaption>
+          </figure>
+          <figure>
+            <div class="shot"><img src="imagens/painel-conectar.png" alt="The Connect tab with ready-made configuration for Claude Code, Codex, Cline, OpenCode, the OpenAI SDK and curl" /></div>
+            <figcaption><b>Connect.</b> Ready-made config for Claude Code, Codex, Cline, OpenCode, any OpenAI SDK and curl. Nothing is written to disk &mdash; editing your own config stays your call.</figcaption>
+          </figure>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="quickstart">
+      <div class="container">
+        <div class="section-label">Quickstart</div>
+        <h2>Point a tool at it, or import it.</h2>
+        <p class="section-copy">
+          The factory catalog ships inside the package, so <code>serve</code> comes
+          up with no YAML at all. A provider with no key in the environment simply
+          is not built.
+        </p>
+
+        <div class="code-wrap">
+          <div>
+            <div class="code-head"><b>Serve</b> &mdash; endpoint and panel</div>
+<pre><span class="cmt"># the core is dependency-free; extras add the rest</span>
+pip install <span class="str">"robinbandit[server,yaml,providers]"</span>
+
+robinbandit serve
+<span class="cmt"># panel     http://localhost:8000/painel</span>
+<span class="cmt"># endpoint  http://localhost:8000/v1/chat/completions</span>
+
+<span class="cmt"># then send any OpenAI-compatible client here.</span>
+<span class="cmt"># `model` is the bandit CONTEXT, not a model name:</span>
+<span class="cmt">#   model="codigo"   learns in one cell</span>
+<span class="cmt">#   model="triagem"  learns in another</span></pre>
+          </div>
+          <div>
+            <div class="code-head"><b>Import</b> &mdash; router and chain</div>
+<pre><span class="accent-green">from</span> robinbandit <span class="accent-green">import</span> ChainProvider, ProviderRouter
+
+router = ProviderRouter(
+    providers={
+        <span class="str">"groq"</span>:   {<span class="str">"tier"</span>: 1, <span class="str">"quality"</span>: 0.75},
+        <span class="str">"gemini"</span>: {<span class="str">"tier"</span>: 1, <span class="str">"quality"</span>: 0.80},
+        <span class="str">"demo"</span>:   {<span class="str">"tier"</span>: 9, <span class="str">"quality"</span>: 0.05},
+    },
+    last_resort=<span class="str">"demo"</span>,
+)
+
+chain = ChainProvider([groq, gemini, demo], router)
+
+response = <span class="accent-green">await</span> chain.complete(
+    messages, context=<span class="str">"auditoria"</span>,
+)
+
+<span class="cmt"># an HTTP 200 is not the same as a good answer</span>
+router.reward_quality(
+    <span class="str">"groq"</span>, context=<span class="str">"auditoria"</span>, good=<span class="accent">True</span>,
+)</pre>
+          </div>
+        </div>
+
+        <div class="code-wrap">
+          <div>
+            <div class="code-head"><b>Send Claude Code through it</b> &mdash; straight from the Connect tab</div>
+<pre>ANTHROPIC_BASE_URL=http://127.0.0.1:8000
+ANTHROPIC_AUTH_TOKEN=robinbandit
+ANTHROPIC_MODEL=codigo
+
+<span class="cmt"># export the three, then open `claude`.</span>
+<span class="cmt"># a new terminal takes you back to normal.</span></pre>
+          </div>
+          <div>
+            <div class="code-head"><b>Declare the chain</b> &mdash; <code>config/universal.yaml</code></div>
+<pre><span class="accent">routing:</span>
+  strategy: adaptive     <span class="cmt"># or: tier</span>
+  last_resort: fallback
+  chain_order: [groq, gemini, claude_code,
+                cerebras, openrouter, ollama]
+
+<span class="accent">providers:</span>
+  groq:
+    cost_class: free_preferred
+  claude_code:
+    auth_type: claude_cli   <span class="cmt"># no api key</span>
+  ollama:
+    cost_class: local
+
+<span class="cmt"># secrets are never in here, only the NAME of</span>
+<span class="cmt"># the env var. the value lives in the vault.</span></pre>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="container">
+        <div class="section-label">The catalog</div>
+        <h2>41 providers, and not one of them opts in by itself.</h2>
+        <p class="section-copy">
+          Turning one on means putting its name in <code>chain_order</code>. Two of
+          them run off a subscription you already pay for, driven through the
+          official CLI &mdash; RobinBandit never opens their credential files and
+          never copies a token into its own vault.
+        </p>
+
+        <div class="providers">
+          <span class="p-tag free">groq</span><span class="p-tag free">gemini</span><span class="p-tag free">github</span><span class="p-tag free">cerebras</span><span class="p-tag">openrouter</span><span class="p-tag sub">chatgpt_codex</span><span class="p-tag free">mistral</span><span class="p-tag free">cohere</span><span class="p-tag">sambanova</span><span class="p-tag">deepinfra</span><span class="p-tag">fireworks</span><span class="p-tag free">huggingface</span><span class="p-tag">claude</span><span class="p-tag">ollama</span><span class="p-tag sub">claude_code</span><span class="p-tag free">nvidia</span><span class="p-tag">deepseek</span><span class="p-tag free">siliconflow</span><span class="p-tag free">zhipu</span><span class="p-tag">xai</span><span class="p-tag">moonshot</span><span class="p-tag free">modelscope</span><span class="p-tag free">nebius</span><span class="p-tag free">nscale</span><span class="p-tag free">chutes</span><span class="p-tag">together</span><span class="p-tag free">dashscope</span><span class="p-tag free">hyperbolic</span><span class="p-tag">novita</span><span class="p-tag">perplexity</span><span class="p-tag free">ai21</span><span class="p-tag free">glhf</span><span class="p-tag free">llm7</span><span class="p-tag free">ollama_cloud</span><span class="p-tag">openai</span><span class="p-tag">azure_openai</span><span class="p-tag">vertex</span><span class="p-tag">bedrock</span><span class="p-tag">lmstudio</span><span class="p-tag">llamacpp</span><span class="p-tag">vllm</span>
+        </div>
+        <div class="legend">
+          <span><i style="background:#739076"></i>free tier or free-preferred</span>
+          <span><i style="background:#E0AF43"></i>subscription, no API key</span>
+          <span><i style="background:#39424C"></i>by key, by credits, or local</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="container">
+        <div class="cta">
+          <div class="section-label">Open source &middot; MIT</div>
+          <h2>One router. Many providers. Evidence instead of order.</h2>
+          <p>Built for people who would rather their routing notice a provider going bad than hear about it afterwards.</p>
+          <a class="btn btn-primary" href="https://github.com/Ryanleoncoder/RobinBandit">Explore the repository</a>
+
+          <a class="cta-shot" href="#panel" aria-label="See the panel section">
+            <img src="imagens/painel-modelos.png" alt="The Models tab: each provider's model list in order, tried top-down until one answers" />
+          </a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="container footer-inner">
+      <span>RobinBandit &mdash; MIT</span>
+      <span>
+        <a href="https://github.com/Ryanleoncoder/RobinBandit">GitHub</a> &middot;
+        <a href="https://github.com/Ryanleoncoder/RobinBandit/blob/main/docs/como-aprende.md">How it learns</a> &middot;
+        <a href="https://github.com/Ryanleoncoder/RobinBandit/issues">Issues</a>
+      </span>
+    </div>
+  </footer>
+
+  <script>
+  (function () {
+    var raiz = document.getElementById('d-queue');
+    if (!raiz) return;
+
+    // Cada provedor tem uma verdade que nao conta a ninguem: `pOk` e a chance
+    // real de responder, `lat` a latencia tipica. O bandit nao ve nenhuma das
+    // duas -- ve so o que aconteceu, chamada por chamada, e tem que descobrir.
+    var PROVEDORES = [
+      { id: 'groq',        pOk: 0.97, lat: 380 },
+      { id: 'cerebras',    pOk: 0.95, lat: 330 },
+      { id: 'gemini',      pOk: 0.91, lat: 560 },
+      { id: 'claude_code', pOk: 0.93, lat: 780 },
+      { id: 'openrouter',  pOk: 0.86, lat: 700 },
+      { id: 'ollama',      pOk: 0.99, lat: 1050 }
+    ];
+
+    var PESOS = { q: 0.40, l: 0.30, s: 0.30 };   // router.py: _DEFAULT_WEIGHTS
+    var ALTURA = 56, INTERVALO = 850;
+
+    function gauss() {
+      var u = 0, v = 0;
+      while (!u) u = Math.random();
+      while (!v) v = Math.random();
+      return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+    }
+
+    // Marsaglia-Tsang: duas gammas dao uma beta, e e a beta que o Thompson
+    // Sampling sorteia. Media nenhuma -- o sorteio e o mecanismo inteiro.
+    function gama(k) {
+      if (k < 1) return gama(1 + k) * Math.pow(Math.random(), 1 / k);
+      var d = k - 1 / 3, c = 1 / Math.sqrt(9 * d), x, v, u;
+      for (;;) {
+        do { x = gauss(); v = 1 + c * x; } while (v <= 0);
+        v = v * v * v; u = Math.random();
+        if (u < 1 - 0.0331 * x * x * x * x) return d * v;
+        if (Math.log(u) < 0.5 * x * x + d * (1 - v + Math.log(v))) return d * v;
+      }
+    }
+    function beta(a, b) {
+      var x = gama(Math.max(a, 1e-3)), y = gama(Math.max(b, 1e-3));
+      return x / (x + y);
+    }
+
+    var estado = PROVEDORES.map(function (p) {
+      return {
+        id: p.id, pOk: p.pOk, latBase: p.lat, lat: p.lat, quebrado: false,
+        qa: 3, qb: 2,   // posterior de qualidade (prior ~0.6, massa leve)
+        ha: 3, hb: 2,   // posterior de saude, separado de proposito
+        ewma: p.lat, ok: 0, err: 0, frio: 0, seguidos: 0, el: null
+      };
+    });
+
+
+    // router.py::_bump -- decaimento por recencia so na celula reforcada, piso
+    // para ela nao colapsar, teto que normaliza mantendo a media. O teto real
+    // e 400; aqui e menor, senao a incerteza morreria antes de alguem terminar
+    // de ler a pagina, e o sorteio deixaria de ter graca.
+    var DECAY = 0.99, CAP = 45;
+    function bump(s, cel, da, db) {
+      var a = cel + 'a', b = cel + 'b';
+      s[a] = Math.max(0.2, s[a] * DECAY) + da;
+      s[b] = Math.max(0.2, s[b] * DECAY) + db;
+      var soma = s[a] + s[b];
+      if (soma > CAP) { var f = CAP / soma; s[a] *= f; s[b] *= f; }
+    }
+
+    var chamadas = 0, rodando = true, ordem = estado.slice();
+
+    function nota(t) { document.getElementById('d-note').textContent = t; }
+
+    estado.forEach(function (s) {
+      var li = document.createElement('li');
+      li.className = 'row';
+      li.innerHTML =
+        '<span class="rank"></span>' +
+        '<span class="who"><img src="logos/' + s.id + '.svg" alt=""><span>' + s.id + '</span></span>' +
+        '<span class="tag idle">idle</span>' +
+        '<span class="bar"><i style="width:0%"></i></span>' +
+        '<span class="num">0 / 0</span>' +
+        '<span class="why"></span>';
+      var img = li.querySelector('img');
+      img.onerror = function () { this.style.visibility = 'hidden'; };
+      li.addEventListener('click', function () { quebrar(s); });
+      li.title = 'click to rate-limit ' + s.id;
+      raiz.appendChild(li);
+      s.el = li;
+    });
+    raiz.style.height = (estado.length * ALTURA + 10) + 'px';
+
+    function quebrar(s) {
+      if (s.quebrado) return;
+      s.quebrado = true;
+      s.pOk = 0.12;
+      nota(s.id + ' is rate-limiting now');
+      setTimeout(function () {
+        s.quebrado = false;
+        s.pOk = PROVEDORES.filter(function (p) { return p.id === s.id; })[0].pOk;
+        nota(s.id + ' recovered - watch it climb back');
+      }, 14000);
+    }
+
+    function pontuar(s) {
+      var q = beta(s.qa, s.qb);
+      var saude = beta(s.ha, s.hb);
+      // latencia normalizada contra o pior da fila, como o router faz
+      var pior = Math.max.apply(null, estado.map(function (x) { return x.ewma; }));
+      var lat = pior > 0 ? s.ewma / pior : 0;
+      return PESOS.q * q + PESOS.l * (1 - lat) + PESOS.s * saude;
+    }
+
+    function tick() {
+      if (!rodando) return;
+      var agora = Date.now();
+
+      // order(): quem esta em cooldown vai para o fim -- mas continua na fila,
+      // porque se todo mundo cair ele ainda e melhor que nada.
+      ordem = estado.slice().sort(function (a, b) {
+        var ca = a.frio > agora ? 1 : 0, cb = b.frio > agora ? 1 : 0;
+        if (ca !== cb) return ca - cb;
+        return pontuar(b) - pontuar(a);
+      });
+
+      var alvo = ordem[0];
+      chamadas++;
+
+      var deuCerto = Math.random() < alvo.pOk;
+      var latencia = alvo.latBase * (0.75 + Math.random() * 0.8);
+
+      if (deuCerto) {
+        alvo.ok++; alvo.seguidos = 0;
+        bump(alvo, 'q', 1, 0); bump(alvo, 'h', 1, 0);
+        // Peak EWMA: o pico entra inteiro, a recuperacao e amostra a amostra.
+        alvo.ewma = latencia > alvo.ewma ? latencia : alvo.ewma * 0.82 + latencia * 0.18;
+      } else {
+        alvo.err++; alvo.seguidos++;
+        bump(alvo, 'h', 0, 1); bump(alvo, 'q', 0, 0.5);
+        alvo.frio = agora + Math.min(30000, 4000 * alvo.seguidos);
+      }
+
+      alvo.el.classList.add('hit');
+      setTimeout(function () { alvo.el.classList.remove('hit'); }, 500);
+
+      pintar(agora);
+    }
+
+    function pintar(agora) {
+      var dePe = 0;
+      ordem.forEach(function (s, i) {
+        var frio = s.frio > agora;
+        if (!frio) dePe++;
+
+        s.el.style.transform = 'translateY(' + (i * ALTURA) + 'px)';
+        s.el.classList.toggle('first', i === 0 && !frio);
+        s.el.classList.toggle('cooling', frio);
+
+        var total = s.ok + s.err;
+        var taxa = total ? s.ok / total : 0;
+        var qual = s.qa / (s.qa + s.qb);
+
+        var tag = s.el.querySelector('.tag');
+        if (frio)              { tag.className = 'tag bad';  tag.textContent = 'waiting'; }
+        else if (!total)       { tag.className = 'tag idle'; tag.textContent = 'idle'; }
+        else if (taxa >= 0.95) { tag.className = 'tag ok';   tag.textContent = 'healthy'; }
+        else if (taxa >= 0.70) { tag.className = 'tag warn'; tag.textContent = 'shaky'; }
+        else                   { tag.className = 'tag bad';  tag.textContent = 'failing'; }
+
+        s.el.querySelector('.rank').textContent = i + 1;
+        s.el.querySelector('.bar i').style.width = Math.round(qual * 100) + '%';
+
+        var num = s.el.querySelector('.num');
+        num.textContent = s.ok + ' / ' + s.err;
+        num.className = 'num' + (s.err ? ' err' : '');
+
+        s.el.querySelector('.why').textContent = frio
+          ? Math.ceil((s.frio - agora) / 1000) + 's'
+          : (total ? Math.round(s.ewma) + 'ms' : '--');
+      });
+
+      document.getElementById('d-calls').textContent = chamadas;
+      document.getElementById('d-up').textContent = dePe;
+    }
+
+    var relogio = setInterval(tick, INTERVALO);
+
+    document.getElementById('d-toggle').addEventListener('click', function () {
+      rodando = !rodando;
+      this.textContent = rodando ? 'pause' : 'resume';
+    });
+
+    // Nao gasta bateria com o que ninguem esta olhando.
+    if ('IntersectionObserver' in window) {
+      new IntersectionObserver(function (entradas) {
+        entradas.forEach(function (e) {
+          if (e.isIntersecting && !relogio) relogio = setInterval(tick, INTERVALO);
+          else if (!e.isIntersecting && relogio) { clearInterval(relogio); relogio = null; }
+        });
+      }, { threshold: 0 }).observe(raiz);
+    }
+
+    pintar(Date.now());
+    nota('sampling from the priors');
+  })();
+  </script>
+</body>
+</html>

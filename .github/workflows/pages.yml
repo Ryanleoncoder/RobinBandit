@@ -1,0 +1,84 @@
+name: Pages
+
+on:
+  push:
+    branches: [main]
+    # Só republica quando o que vai ao ar mudou.
+    paths:
+      - "site/**"
+      - "docs/imagens/**"
+      - "assets/robinbandit_logo1.png"
+      - "src/robinbandit/assets/providers/**"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+# O token só precisa escrever a página; nada mais do repositório é tocado.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Uma publicação por vez, e sem cancelar a que já está subindo.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  montar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Montar o site
+        # As capturas moram em docs/imagens e a logo em assets: os mesmos
+        # arquivos que o README usa. Copiar na hora de publicar evita manter
+        # uma segunda cópia dos PNGs dentro de site/.
+        run: |
+          mkdir -p _site/imagens _site/logos
+          cp site/index.html _site/
+          cp docs/imagens/*.png _site/imagens/
+          cp assets/robinbandit_logo1.png _site/
+          # As logos do carrossel são as mesmas que o painel serve em /logos.
+          cp src/robinbandit/assets/providers/*.svg _site/logos/
+          # Sem isto o GitHub Pages roda Jekyll e ignora o que começa com "_".
+          touch _site/.nojekyll
+          ls -lR _site
+
+      - name: Conferir que nada ficou apontando para o vazio
+        # Uma imagem quebrada não derruba a publicação; ela só aparece quebrada
+        # para quem visita. Aqui o build falha antes disso.
+        run: |
+          python - <<'PY'
+          import pathlib, re, sys
+
+          raiz = pathlib.Path("_site")
+          html = (raiz / "index.html").read_text(encoding="utf-8")
+
+          # O <script> monta caminhos por concatenação ('logos/' + id + '.svg').
+          # Isso não é um arquivo, é código: fora daqui antes de procurar.
+          sem_js = re.sub(r"<script\b.*?</script>", "", html, flags=re.S | re.I)
+
+          alvos = {a for a in re.findall(r'(?:src|href)="([^"#]+)"', sem_js)
+                   if not a.startswith(("http", "mailto:", "data:"))}
+
+          quebrados = sorted(a for a in alvos if not (raiz / a).exists())
+          if quebrados:
+              print("Recursos ausentes no _site:", *quebrados, sep="\n  ")
+              sys.exit(1)
+
+          print(f"{len(alvos)} recursos locais, todos presentes")
+          PY
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  publicar:
+    needs: montar
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@v4

@@ -1,0 +1,464 @@
+  :root {
+    /* O bege e a marca. Os neutros puxam para o quente dele em vez de cinza
+       puro: cinza neutro ao lado de #EFE3D2 le-se como duas paletas. */
+    --bege: #EFE3D2;
+    --suave: #918777;
+    --bege-fraco: #6E675E;
+    --verde: #5E7A61;
+    --verde-claro: #7C9A7F;
+    --ambar: #E0AF43;
+    --ruim: #C9553D;
+
+    --fundo: #0A0A0C;
+    --carta: #131316;
+    --carta-alta: #1A1B1F;
+    --linha: #26272C;
+    --linha-fraca: #1C1D21;
+
+    --raio: 12px;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0; background: var(--fundo); color: var(--bege);
+    font: 14px/1.55 ui-sans-serif, -apple-system, "Segoe UI", Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;
+  }
+
+  /* Nao use `overflow-x: hidden` no html: ele desliga `position: sticky` no
+     descendente, e foi assim que a barra lateral parou de acompanhar. O que
+     for largo rola dentro da propria caixa. */
+  .app { display: grid; grid-template-columns: 236px minmax(0, 1fr); min-height: 100vh; }
+
+  /* ---------------------------------------------------------- barra lateral */
+  nav {
+    border-right: 1px solid var(--linha-fraca); background: #0C0C0E;
+    padding: 24px 14px 18px; display: flex; flex-direction: column; gap: 2px;
+    position: sticky; top: 0; height: 100vh;
+  }
+  .marca { display: flex; align-items: center; gap: 10px; padding: 0 8px 22px; }
+  .marca img { width: 28px; height: 28px; object-fit: contain; }
+  .marca span { font-size: 13.5px; font-weight: 700; letter-spacing: .01em; }
+  .marca span b { color: var(--verde-claro); font-weight: 700; }
+
+  nav button {
+    font: inherit; font-size: 13px; text-align: left; padding: 8px 10px;
+    border: 0; border-radius: 9px; background: transparent; color: var(--suave);
+    cursor: pointer; display: flex; align-items: center; gap: 10px;
+    transition: background .12s, color .12s;
+  }
+  nav button:hover { background: var(--carta); color: var(--bege); }
+  nav button[aria-current="page"] { background: var(--carta-alta); color: var(--bege); font-weight: 600; }
+  nav button[aria-current="page"] .marcador { background: var(--ambar); }
+  .marcador { width: 3px; height: 14px; border-radius: 2px; background: transparent; flex: none; }
+
+  nav .rodape {
+    margin-top: auto; padding: 15px 10px 0; border-top: 1px solid var(--linha-fraca);
+    font-size: 11.5px; color: var(--bege-fraco); line-height: 1.8;
+  }
+  nav .rodape b { color: var(--bege); font-weight: 500; font-family: var(--mono); }
+
+  /* -------------------------------------------------------------- conteudo */
+  main { padding: 34px 40px 90px; max-width: 1100px; }
+  .cabeca { margin-bottom: 28px; }
+  h1 { font-size: 25px; margin: 0 0 7px; letter-spacing: -.02em; font-weight: 650;
+    text-wrap: balance; }
+  .cabeca p { margin: 0; color: var(--suave); font-size: 13.5px; max-width: 62ch; line-height: 1.6; }
+
+  h2 {
+    font-size: 11px; text-transform: uppercase; letter-spacing: .12em;
+    color: var(--bege-fraco); font-weight: 600; margin: 32px 0 12px;
+    display: flex; align-items: center; gap: 12px;
+  }
+  h2 .risco { flex: 1; height: 1px; background: var(--linha-fraca); }
+  .como, .dica { color: var(--suave); font-size: 12.5px; max-width: 66ch; line-height: 1.6; }
+  .vazio { color: var(--bege-fraco); font-size: 13px; margin: 0; padding: 16px 0; }
+  code { font-family: var(--mono); font-size: .92em; color: var(--bege);
+    background: var(--carta-alta); padding: 1px 5px; border-radius: 5px; }
+
+  .recado { color: var(--ambar); font-size: 12.5px; min-height: 18px; margin: 12px 0 0; }
+
+  /* ----------------------------------------------------------------- cartas */
+  .carta { border: 1px solid var(--linha-fraca); border-radius: var(--raio);
+    background: var(--carta); overflow: hidden; }
+
+  /* ---------------------------------------------------------------- tabelas */
+  table { width: 100%; border-collapse: collapse; }
+  thead th {
+    text-align: left; font-size: 10.5px; text-transform: uppercase; letter-spacing: .1em;
+    color: var(--bege-fraco); font-weight: 600; padding: 11px 14px;
+    border-bottom: 1px solid var(--linha-fraca); background: #0F0F12;
+  }
+  tbody td { padding: 12px 14px; border-bottom: 1px solid var(--linha-fraca); font-size: 13px; }
+  tbody tr:last-child td { border-bottom: 0; }
+  tbody tr:hover td { background: #101013; }
+  .num { font-family: var(--mono); font-size: 12px; font-variant-numeric: tabular-nums; }
+  .posicao { font-family: var(--mono); font-size: 11px; color: var(--bege-fraco); width: 34px; }
+  .comlogo { display: flex; align-items: center; gap: 9px; }
+  .comlogo img, .logo { width: 17px; height: 17px; object-fit: contain; border-radius: 4px; flex: none; }
+  /* Provedor sem arte ganha a sigla. O nome da classe tem que bater com o que
+     o `onerror` da imagem escreve, senao a sigla sai sem estilo nenhum. */
+  .logo.falta {
+    display: inline-flex; align-items: center; justify-content: center;
+    background: var(--carta-alta); color: var(--bege-fraco); font-size: 8px;
+    font-weight: 700; letter-spacing: .02em; font-family: var(--mono);
+    border: 1px solid var(--linha-fraca);
+  }
+  .porque { color: var(--bege-fraco); font-size: 12.5px; }
+
+  /* Barra de qualidade: com 4px de altura e cor chapada ela nao dizia nada. */
+  .medidor { display: flex; align-items: center; gap: 9px; }
+  /* 5px de trilho com 62px de largura nao mostrava diferenca entre 0.70 e
+     0.95: a barra inteira lia-se como uma risca cinza. */
+  .medidor .trilho { width: 76px; height: 7px; border-radius: 999px; background: #212227;
+    overflow: hidden; flex: none; }
+  .medidor .cheio { height: 100%; border-radius: 999px; background: var(--verde-claro);
+    box-shadow: 0 0 8px rgba(124,154,127,.35); }
+  .medidor .cheio.medio { background: var(--ambar); box-shadow: 0 0 8px rgba(224,175,67,.3); }
+  .medidor .cheio.baixo { background: var(--ruim); box-shadow: 0 0 8px rgba(201,85,61,.3); }
+  .medidor .valor { font-family: var(--mono); font-size: 12px; font-variant-numeric: tabular-nums; }
+  .medidor .valor.palpite { color: var(--bege-fraco); }
+  /* "0.95*" nao se explica sozinho. A palavra cabe e diz o que o asterisco
+     queria dizer: este numero e o prior do catalogo, nao uma medicao. */
+  .medidor .palpite-nota { font-size: 9.5px; text-transform: uppercase; letter-spacing: .07em;
+    color: var(--bege-fraco); border: 1px solid var(--linha-fraca); border-radius: 999px;
+    padding: 1px 6px; }
+
+  .selo {
+    font-size: 10px; text-transform: uppercase; letter-spacing: .07em; font-weight: 600;
+    padding: 3px 8px; border-radius: 999px; border: 1px solid var(--linha); color: var(--suave);
+    white-space: nowrap;
+  }
+  .selo.bom { color: var(--verde-claro); border-color: rgba(124,154,127,.4); background: rgba(94,122,97,.1); }
+  .selo.atencao { color: var(--ambar); border-color: rgba(224,175,67,.38); background: rgba(224,175,67,.08); }
+  .selo.mau { color: var(--ruim); border-color: rgba(201,85,61,.4); background: rgba(201,85,61,.1); }
+
+  /* ------------------------------------------------------------- numeros do topo */
+  .placar { display: grid; grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+    border: 1px solid var(--linha-fraca); border-radius: var(--raio); overflow: hidden;
+    background: var(--carta); }
+  .placar div { padding: 15px 17px; border-right: 1px solid var(--linha-fraca); }
+  .placar div:last-child { border-right: 0; }
+  .placar b { display: block; font-size: 22px; font-weight: 600; letter-spacing: -.02em;
+    font-family: var(--mono); font-variant-numeric: tabular-nums; line-height: 1.25; }
+  .placar b.verde { color: var(--verde-claro); }
+  .placar b.ambar { color: var(--ambar); }
+  .placar span { display: block; font-size: 10.5px; text-transform: uppercase;
+    letter-spacing: .09em; color: var(--bege-fraco); margin-top: 3px; }
+  .placar small { display: block; font-size: 11.5px; color: var(--suave); margin-top: 5px; }
+
+  /* -------------------------------------------------------------- abas e botoes */
+  .abas { display: flex; gap: 7px; margin-bottom: 16px; flex-wrap: wrap; }
+  .aba {
+    font: inherit; font-size: 12px; padding: 6px 13px; border-radius: 999px;
+    border: 1px solid var(--linha); background: transparent; color: var(--suave); cursor: pointer;
+  }
+  /* O seletor de idioma fica no pe da barra, perto do pulso: e configuracao
+     que se toca uma vez, nao navegacao. */
+  .idioma { display: flex; align-items: center; flex-wrap: wrap; gap: 6px;
+    margin-top: auto; padding: 14px 0 10px; border-top: 1px solid var(--linha-fraca); }
+  .idioma .dica { width: 100%; margin-bottom: 2px; }
+  .idioma .aba { font-size: 11.5px; padding: 4px 10px; }
+
+  .aba:hover { border-color: var(--verde); color: var(--bege); }
+  .aba[aria-pressed="true"] { background: rgba(94,122,97,.16); border-color: var(--verde);
+    color: var(--bege); font-weight: 600; }
+
+  /* Marca de "já chegou chamada daqui", na própria aba: sem isso, descobrir de
+     onde veio tráfego exigia clicar em cada uma. */
+  .ponto-ok { display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+    background: var(--verde-claro); vertical-align: middle; margin-left: 5px; }
+
+  /* A linha que responde "colei no lugar certo?". Até ela existir, a resposta
+     vinha do primeiro erro dentro do agente. */
+  .conexao { font-size: 12.5px; color: var(--suave); margin: 14px 0 0;
+    padding: 10px 13px; border-radius: 9px; border: 1px solid var(--linha-fraca);
+    background: var(--carta-alta); max-width: 66ch; line-height: 1.6; }
+  .conexao b { color: var(--bege-fraco); font-weight: 600; }
+  .conexao.viva { border-color: rgba(94,122,97,.5); background: rgba(94,122,97,.1); }
+  .conexao.viva b { color: var(--verde-claro); }
+  .conexao.fria { border-color: var(--linha); }
+  .conexao.fria b { color: var(--ambar); }
+
+  .acao {
+    font: inherit; font-size: 12.5px; background: var(--carta-alta); color: var(--bege);
+    border: 1px solid var(--linha); border-radius: 9px; padding: 7px 14px; cursor: pointer;
+    transition: border-color .12s, background .12s;
+  }
+  .acao:hover { border-color: var(--verde-claro); background: #1F2024; }
+  .acao:disabled { opacity: .35; cursor: not-allowed; }
+
+  input, select {
+    font: inherit; background: #0E0E11; color: var(--bege);
+    border: 1px solid var(--linha); border-radius: 9px; padding: 8px 11px; font-size: 12.5px;
+    outline: none;
+  }
+  input:focus, select:focus { border-color: var(--verde); }
+  input::placeholder { color: var(--bege-fraco); }
+
+  /* ------------------------------------------------------------------ escolhas */
+  .escolhas { display: grid; gap: 10px; max-width: 720px; }
+  .escolha {
+    display: flex; gap: 12px; align-items: flex-start; padding: 14px 16px;
+    border: 1px solid var(--linha-fraca); border-radius: var(--raio); cursor: pointer;
+    background: var(--carta); transition: border-color .12s;
+  }
+  .escolha:hover { border-color: var(--linha); }
+  .escolha[data-ativa="true"] { border-color: var(--verde); background: rgba(94,122,97,.07); }
+  .escolha input { margin: 3px 0 0; accent-color: var(--verde-claro); }
+  .escolha .titulo { display: block; font-size: 13.5px; font-weight: 600; }
+  .escolha .texto { display: block; font-size: 12.5px; color: var(--suave); margin-top: 3px; line-height: 1.55; }
+
+  /* ---------------------------------------------------------------- tiers */
+  .faixa { border: 1px solid var(--linha-fraca); border-radius: var(--raio);
+    padding: 14px 16px; margin-bottom: 11px; background: var(--carta); }
+  .faixa.alvo { border-color: var(--verde); background: rgba(94,122,97,.07); }
+  .faixa .titulo { font-size: 12.5px; font-weight: 600; margin-bottom: 12px;
+    display: flex; align-items: center; gap: 9px; }
+  .faixa .titulo em { font-style: normal; font-size: 11px; color: var(--bege-fraco);
+    font-family: var(--mono); }
+  .grade { display: grid; grid-template-columns: repeat(auto-fill, minmax(196px, 1fr)); gap: 9px; }
+
+  .prov {
+    display: flex; align-items: center; gap: 9px; padding: 9px 11px;
+    border: 1px solid var(--linha-fraca); border-radius: 9px; background: var(--carta-alta);
+    cursor: grab; font-size: 12.5px;
+  }
+  .prov:hover { border-color: var(--linha); }
+  .prov.arrastando { opacity: .4; }
+  /* "Fora da cadeia" nao e "ilegivel": em opacidade baixa o nome sumia
+     justamente na tela onde se escolhe qual usar. */
+  .prov.fora { background: transparent; border-style: dashed; }
+  .prov.fora .quem { color: var(--suave); }
+  .prov .quem { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .prov .liga {
+    font: inherit; font-size: 10px; text-transform: uppercase; letter-spacing: .06em;
+    border: 1px solid var(--linha); background: transparent; color: var(--bege-fraco);
+    border-radius: 999px; padding: 2px 8px; cursor: pointer; white-space: nowrap;
+  }
+  .prov .liga[data-ligado="true"] { color: var(--verde-claro); border-color: rgba(124,154,127,.4); }
+
+  /* ---------------------------------------------------------------- modelos */
+  .provlinha { border: 1px solid var(--linha-fraca); border-radius: var(--raio);
+    padding: 15px 17px; margin-bottom: 11px; background: var(--carta); }
+  .provlinha .topo { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+  .provlinha .quem { font-size: 13.5px; font-weight: 600; }
+  .provlinha .obs { margin-left: auto; font-size: 11px; color: var(--bege-fraco);
+    display: flex; align-items: center; gap: 9px; }
+  .descobrir {
+    font: inherit; font-size: 11px; border: 1px solid var(--linha); background: transparent;
+    color: var(--suave); border-radius: 999px; padding: 3px 10px; cursor: pointer;
+  }
+  .descobrir:hover { border-color: var(--verde); color: var(--bege); }
+  .modelos { display: grid; gap: 6px; }
+  .modelo { display: flex; align-items: center; gap: 11px; padding: 8px 11px;
+    background: #0E0E11; border-radius: 8px; font-family: var(--mono); font-size: 12px; }
+  .modelo .pos { color: var(--bege-fraco); width: 14px; font-size: 11px; }
+  .modelo .nome { flex: 1; overflow: hidden; text-overflow: ellipsis; }
+  .modelo .setas { display: flex; gap: 3px; }
+  .modelo button {
+    font: inherit; font-size: 11px; background: var(--carta-alta); color: var(--suave);
+    border: 1px solid var(--linha-fraca); border-radius: 6px; padding: 2px 7px; cursor: pointer;
+  }
+  .modelo button:hover:not(:disabled) { border-color: var(--verde); color: var(--bege); }
+  .modelo button:disabled { opacity: .25; cursor: not-allowed; }
+  .modelo .tirar:hover { border-color: var(--ruim); color: var(--ruim); }
+  form.somar { display: flex; gap: 8px; margin-top: 11px; }
+  form.somar input { flex: 1; font-family: var(--mono); }
+  .achados { margin-top: 11px; display: flex; gap: 6px; flex-wrap: wrap; }
+  .achados .dica { width: 100%; margin: 0 0 4px; }
+  .achado {
+    background: transparent; border: 1px dashed var(--linha); color: var(--suave);
+    border-radius: 999px; padding: 3px 10px; font-size: 11px; cursor: pointer;
+    font-family: var(--mono);
+  }
+  .achado:hover { border-style: solid; border-color: var(--verde-claro); color: var(--bege); }
+
+  /* ------------------------------------------------------------ credenciais */
+  .grupo-cred { margin-bottom: 26px; }
+  .grupo-cred > h2 { margin-top: 0; }
+  .cred { border: 1px solid var(--linha-fraca); border-radius: var(--raio);
+    padding: 15px 17px; margin-bottom: 10px; background: var(--carta); }
+  .cred .topo { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .cred .var { font-family: var(--mono); font-size: 12px; color: var(--bege); }
+  .cred .conta-nome { font-size: 11px; padding: 2px 8px; border-radius: 999px;
+    border: 1px solid var(--linha-fraca); color: var(--suave); }
+  .cred .estado { margin-left: auto; font-size: 11px; color: var(--bege-fraco); }
+  .cred .estado.tem { color: var(--verde-claro); }
+  .cred form { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; align-items: center; }
+  .cred input.valor { flex: 1 1 200px; }
+  .cred input.apelido { flex: 0 1 170px; }
+  .cred .paga { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--suave); }
+  .cred .paga input { accent-color: var(--ambar); }
+
+  /* A marca de paga e da CHAVE, nao da variavel: duas chaves da mesma conta
+     podem ser uma gratuita e uma paga, e a marca em cima dizia que as duas
+     eram pagas. */
+  .chaves { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+  .chave {
+    display: flex; align-items: center; gap: 9px; padding: 6px 7px 6px 12px;
+    border: 1px solid var(--linha-fraca); border-radius: 999px; background: var(--carta-alta);
+    font-size: 11.5px;
+  }
+  .chave.e-paga { border-color: rgba(224,175,67,.32); }
+  .chave b { font-weight: 500; color: var(--bege); }
+  .chave b.anonima { color: var(--bege-fraco); font-weight: 400; font-style: italic; }
+  .chave .dica { font-family: var(--mono); color: var(--bege-fraco); font-size: 11px; }
+  .chave .marca-paga {
+    font-size: 9px; text-transform: uppercase; letter-spacing: .08em; font-weight: 700;
+    color: var(--ambar); border: 1px solid rgba(224,175,67,.4); border-radius: 999px;
+    padding: 1px 6px; cursor: pointer; background: transparent;
+  }
+  .chave .marca-paga.off { color: var(--bege-fraco); border-color: var(--linha-fraca); }
+  .chave .acoes { display: flex; gap: 2px; }
+  .chave .acoes button {
+    background: transparent; border: 0; color: var(--bege-fraco); cursor: pointer;
+    font-size: 12px; padding: 2px 5px; border-radius: 6px; line-height: 1;
+  }
+  .chave .acoes button:hover { color: var(--bege); background: #212226; }
+  .chave .acoes .apagar:hover { color: var(--ruim); }
+
+  .trazer, .reservado {
+    display: flex; align-items: center; gap: 15px; flex-wrap: wrap;
+    border: 1px solid var(--linha-fraca); border-radius: var(--raio);
+    padding: 15px 17px; margin-bottom: 12px; background: var(--carta);
+  }
+  .trazer div, .reservado p { flex: 1 1 260px; }
+  .trazer strong, .reservado strong { font-size: 13px; font-weight: 600; }
+  .trazer p, .reservado p { margin: 4px 0 0; font-size: 12.5px; color: var(--suave); }
+  .somar-conta { margin-top: 20px; border: 1px dashed var(--linha); border-radius: var(--raio);
+    padding: 15px 17px; background: var(--carta); }
+  .somar-conta summary { cursor: pointer; font-size: 13px; color: var(--bege); }
+  .somar-conta form { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; align-items: center; }
+  .somar-conta input { flex: 1 1 140px; }
+  .somar-conta .paga { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--suave); }
+  .cli { font-size: 12.5px; color: var(--suave); margin: 11px 0 0; line-height: 1.6; }
+  .cli b { color: var(--verde-claro); font-weight: 500; }
+
+  /* ---------------------------------------------------------------- janelas */
+  .janela { border: 1px solid var(--linha-fraca); border-radius: var(--raio);
+    padding: 16px 18px; margin-bottom: 10px; background: var(--carta); }
+  .janela .topo { display: flex; align-items: center; gap: 10px; }
+  .janela .quem { font-size: 13.5px; font-weight: 600; }
+  .janela .quanto { margin-left: auto; font-size: 14px; font-family: var(--mono);
+    font-variant-numeric: tabular-nums; }
+  .janela .quanto small { color: var(--bege-fraco); font-size: 11px; font-family: inherit; }
+  .janela .trilho { height: 6px; border-radius: 999px; background: #1E1F23; margin-top: 13px; overflow: hidden; }
+  .janela .cheio { height: 100%; background: var(--verde); border-radius: 999px; }
+  .janela .cheio.perto { background: var(--ambar); }
+  .janela .conta { margin: 10px 0 0; font-size: 12px; color: var(--suave); }
+  .janela .conta b { color: var(--ambar); font-weight: 500; }
+  .janela.parada { border-style: dashed; background: transparent; }
+  .ping { border: 1px solid var(--linha-fraca); border-radius: var(--raio);
+    padding: 16px 18px; margin-top: 24px; background: var(--carta); }
+  .ping .topo { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .ping h2 { margin: 0; font-size: 12.5px; text-transform: none; letter-spacing: 0;
+    color: var(--bege); font-weight: 600; }
+  .ping h2 .risco { display: none; }
+  .ping .liga-ping { margin-left: auto; }
+  .ping .campos { display: flex; gap: 14px; margin-top: 14px; align-items: center;
+    flex-wrap: wrap; font-size: 12px; color: var(--suave); }
+  .ping .campos label { display: flex; align-items: center; gap: 7px; }
+  .ping input[type=number] { width: 82px; font-family: var(--mono); }
+  .ping input[type=checkbox] { accent-color: var(--verde-claro); }
+
+  /* ------------------------------------------------------------------- uso */
+  .calendario { overflow-x: auto; padding-bottom: 6px; }
+  .calendario .quadro { display: grid; grid-template-columns: auto auto;
+    grid-template-rows: auto auto; gap: 6px 8px; width: max-content; }
+  .calendario .meses { grid-column: 2; display: grid; grid-auto-flow: column;
+    font-size: 10px; color: var(--bege-fraco); height: 12px; }
+  .calendario .semana { grid-row: 2; display: grid; grid-template-rows: repeat(7, 12px);
+    gap: 3px; font-size: 9px; color: var(--bege-fraco); text-align: right; }
+  .calendario .semana span { line-height: 12px; }
+  /* `repeat(N, 12px)`, nao colunas automaticas: com `1fr` elas esticavam para
+     preencher a largura e a grade virava quadrados soltos com buraco no meio. */
+  .calendario .malha { grid-row: 2; display: grid; grid-template-rows: repeat(7, 12px);
+    grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: 12px; gap: 3px; }
+  /* O dia vazio precisa SER um quadrado: perto demais do fundo, ele sumia e a
+     grade parecia ter falhas onde so havia dia sem uso. */
+  .calendario i { width: 12px; height: 12px; border-radius: 3px; display: block;
+    background: #1E1F23; }
+  .calendario i.fora { visibility: hidden; }
+  .calendario i[data-n="1"] { background: #2E4434; }
+  .calendario i[data-n="2"] { background: #446A4C; }
+  .calendario i[data-n="3"] { background: var(--verde); }
+  .calendario i[data-n="4"] { background: var(--verde-claro); }
+  .calendario .legenda { display: flex; align-items: center; gap: 5px; margin-top: 14px;
+    font-size: 11.5px; color: var(--bege-fraco); flex-wrap: wrap; }
+  .calendario .legenda i { width: 12px; height: 12px; }
+  .calendario .legenda .fim { margin-left: 12px; color: var(--suave); }
+
+  .sem-uso { border: 1px dashed var(--linha); border-radius: var(--raio); padding: 30px 24px;
+    text-align: center; color: var(--suave); font-size: 13px; }
+  .sem-uso b { display: block; color: var(--bege); font-size: 15px; font-weight: 600; margin-bottom: 7px; }
+  .sem-uso span { display: block; max-width: 46ch; margin: 0 auto; line-height: 1.6; }
+
+  .gasto { display: flex; align-items: center; gap: 11px; padding: 11px 14px;
+    border-bottom: 1px solid var(--linha-fraca); flex-wrap: wrap; }
+  .gasto:last-child { border-bottom: 0; }
+  .gasto .quem { flex: 0 0 130px; font-size: 13px; }
+  .gasto .barra { flex: 1 1 120px; height: 5px; border-radius: 999px; background: #1E1F23; overflow: hidden; }
+  .gasto .barra span { display: block; height: 100%; background: var(--verde); border-radius: 999px; }
+  .gasto .n { font-family: var(--mono); font-size: 12.5px; font-variant-numeric: tabular-nums;
+    min-width: 76px; text-align: right; }
+
+  /* Sem isto TODAS as telas renderizam empilhadas e a troca de aba vira
+     rolagem. Foi o que a reescrita do estilo derrubou. */
+  .oculto { display: none !important; }
+
+  /* ---------------------------------------------------------------- credito */
+  .credito { display: flex; align-items: center; gap: 11px; padding: 12px 15px;
+    border: 1px solid var(--linha-fraca); border-radius: var(--raio);
+    background: var(--carta); margin-bottom: 8px; font-size: 13px; }
+  .credito > span:first-of-type { flex: 1; }
+  .credito .valor { font-family: var(--mono); font-size: 12.5px;
+    font-variant-numeric: tabular-nums; color: var(--verde-claro); }
+  .credito .valor.baixo { color: var(--ambar); }
+
+  /* --------------------------------------------------------- 30 dias por dia */
+  .linhadia { border: 1px solid var(--linha-fraca); border-radius: var(--raio);
+    padding: 14px 16px; background: var(--carta); }
+  .linhadia .topo { display: flex; align-items: center; gap: 10px; font-size: 13px; }
+  .linhadia .topo > span:first-of-type { flex: 1; }
+  .linhadia .up { font-family: var(--mono); font-size: 12.5px;
+    font-variant-numeric: tabular-nums; color: var(--verde-claro); }
+  .linhadia .up.baixo { color: var(--ambar); }
+  .linhadia .dias { display: flex; gap: 2px; margin-top: 12px; }
+  .linhadia .dias i { flex: 1; height: 18px; border-radius: 2px; background: #1E1F23; display: block; }
+  .linhadia .dias i[data-s="ok"] { background: var(--verde); }
+  .linhadia .dias i[data-s="atencao"] { background: var(--ambar); }
+  .linhadia .dias i[data-s="ruim"] { background: var(--ruim); }
+  .linhadia .legenda { display: flex; justify-content: space-between; margin-top: 8px;
+    font-size: 10.5px; color: var(--bege-fraco); }
+  .linhadia .legenda em { font-style: normal; }
+
+  /* --------------------------------------------------------------- conectar */
+  pre {
+    background: #0E0E11; border: 1px solid var(--linha-fraca); border-radius: var(--raio);
+    padding: 15px 17px; overflow-x: auto; font-family: var(--mono); font-size: 12px;
+    line-height: 1.65; margin: 0; color: var(--bege);
+  }
+  .arquivo { font-family: var(--mono); font-size: 11.5px; color: var(--bege-fraco); margin: 0 0 9px; }
+
+  /* A barra de rolagem tambem e da marca: a do sistema entrava branca no tema
+     escuro e cortava a pagina ao meio. */
+  * { scrollbar-width: thin; scrollbar-color: #2E3036 transparent; }
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #2E3036; border-radius: 999px; border: 2px solid var(--fundo); }
+  ::-webkit-scrollbar-thumb:hover { background: var(--verde); }
+  ::-webkit-scrollbar-corner { background: transparent; }
+
+  @media (max-width: 860px) {
+    .app { grid-template-columns: 1fr; }
+    nav { flex-direction: row; overflow-x: auto; height: auto; position: static;
+      align-items: center; border-right: 0; border-bottom: 1px solid var(--linha-fraca); }
+    nav .rodape { margin-top: 0; padding: 0 0 0 14px; border-top: 0;
+      border-left: 1px solid var(--linha-fraca); white-space: nowrap; }
+    .marca { padding: 0 12px 0 4px; }
+    main { padding: 24px 20px 70px; }
+  }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }

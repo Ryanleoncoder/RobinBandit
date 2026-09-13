@@ -1,0 +1,127 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# Um push novo cancela a execução anterior do mesmo branch.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  testes:
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        # A mínima declarada no pyproject e uma versão recente. O core é só
+        # biblioteca padrão, então as duas pontas precisam passar iguais.
+        python: ["3.9", "3.13"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Preparar Python ${{ matrix.python }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Instalar o pacote com os extras de desenvolvimento
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev,yaml,providers]"
+
+      - name: Testes
+        # Sem segredos: provedor sem chave no ambiente não é montado, e as
+        # chamadas externas são substituídas por dublês no conftest.
+        run: python -m pytest -q
+
+  pacote:
+    # O catálogo de fábrica e a arte dos provedores vão DENTRO do pacote.
+    # Quando um deles escapa do package-data, `pip install robinbandit` sobe
+    # sem catálogo e com o painel sem logo — e isso não aparece em teste
+    # nenhum rodando do diretório do repositório.
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Construir o wheel e o sdist
+        run: |
+          python -m pip install --upgrade pip build twine
+          python -m build
+
+      - name: Validar os metadados
+        run: python -m twine check dist/*
+
+      - name: Conferir o que foi parar dentro dos artefatos
+        # O sdist é conferido junto porque `package-data` sem MANIFEST.in é o
+        # furo clássico: sai certo no wheel e vazio no tar.gz.
+        run: |
+          python - <<'PY'
+          import pathlib, sys, tarfile, zipfile
+
+          # O que precisa viajar junto, e como se reconhece cada um.
+          EXATOS = ("padrao.yaml",)
+          PASTAS = ("assets/providers/", "assets/painel/")
+          PAGINA = ("assets/painel/pagina.html", "assets/painel/estilo.css",
+                    "assets/painel/painel.js", "assets/painel/textos.js")
+
+          def conferir(rotulo, nomes):
+              # No wheel os caminhos começam em "robinbandit/"; no sdist, em
+              # "robinbandit-0.5.0/src/robinbandit/". Compara pelo sufixo.
+              def tem(alvo):
+                  return any(n.endswith("robinbandit/" + alvo) for n in nomes)
+
+              faltando = [a for a in EXATOS + PAGINA if not tem(a)]
+              for pasta in PASTAS:
+                  if not any("robinbandit/" + pasta in n for n in nomes):
+                      faltando.append(pasta + "*")
+
+              if faltando:
+                  print(f"FALTA no {rotulo}:", *faltando, sep="\n  ")
+                  return False
+
+              logos = [n for n in nomes if "robinbandit/assets/providers/" in n]
+              print(f"{rotulo}: catálogo, página do painel e {len(logos)} logos presentes")
+              return True
+
+          wheel = next(pathlib.Path("dist").glob("*.whl"))
+          sdist = next(pathlib.Path("dist").glob("*.tar.gz"))
+          ok = conferir(wheel.name, zipfile.ZipFile(wheel).namelist())
+          with tarfile.open(sdist) as tar:
+              ok = conferir(sdist.name, tar.getnames()) and ok
+          sys.exit(0 if ok else 1)
+          PY
+
+      - name: Instalar o wheel num ambiente limpo e renderizar o painel
+        # `pip install -e .` esconde arquivo faltando, porque o pacote continua
+        # sendo lido do repositório. Aqui não: instala o artefato e sai de casa.
+        # Montar a página é o que pega glob errado em runtime — e de quebra o
+        # caso "o arquivo chegou, mas a montagem falhou".
+        run: |
+          python -m venv /tmp/limpo
+          /tmp/limpo/bin/pip install --quiet dist/*.whl
+          cd /tmp
+          /tmp/limpo/bin/python -c "import robinbandit; print('robinbandit', robinbandit.__version__)"
+          /tmp/limpo/bin/robinbandit --help > /dev/null && echo "CLI responde"
+          /tmp/limpo/bin/python - <<'PY'
+          from robinbandit.painel import PAGINA
+
+          assert len(PAGINA) > 60000, f"página curta demais: {len(PAGINA)} chars"
+          assert "#EFE3D2" in PAGINA, "o CSS não foi embutido"
+          assert "setInterval(atualizar" in PAGINA, "o JS não foi embutido"
+          assert "histórico" in PAGINA, "acento corrompido: leitura sem utf-8"
+          assert "/*ESTILO*/" not in PAGINA and "/*SCRIPT*/" not in PAGINA
+          print(f"painel montado a partir do wheel: {len(PAGINA):,} chars")
+          PY

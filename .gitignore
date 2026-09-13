@@ -1,0 +1,21 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+search/
+# Nada de segredo no repositório. O cofre mora em ~/.robinbandit; estas linhas
+# são a rede de segurança para o dia em que alguém apontar o caminho para cá.
+.env
+.env.*
+.sentury/
+.robinbandit/
+cofre.json
+
+# O preview local da landing monta estes a partir de docs/ e src/ (ver site/preview.py).
+site/imagens/
+site/logos/
+site/robinbandit_logo1.png

@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RobinBandit</title>
+<link rel="icon" href="logos/robinbandit.png">
+<style>/*ESTILO*/</style>
+</head>
+<body>
+<div class="app">
+  <nav>
+    <div class="marca">
+      <img src="logos/robinbandit.png" alt="">
+      <span>ROBIN<b>BANDIT</b></span>
+    </div>
+    <button type="button" data-tela="agora" aria-current="page"><span class="marcador"></span><span data-t="nav.agora">Agora</span></button>
+    <button type="button" data-tela="provedores"><span class="marcador"></span><span data-t="nav.provedores">Provedores</span></button>
+    <button type="button" data-tela="modelos"><span class="marcador"></span><span data-t="nav.modelos">Modelos</span></button>
+    <button type="button" data-tela="credenciais"><span class="marcador"></span><span data-t="nav.credenciais">Credenciais</span></button>
+    <button type="button" data-tela="janelas"><span class="marcador"></span><span data-t="nav.janelas">Janelas</span></button>
+    <button type="button" data-tela="uso"><span class="marcador"></span><span data-t="nav.uso">Uso</span></button>
+    <button type="button" data-tela="conectar"><span class="marcador"></span><span data-t="nav.conectar">Conectar</span></button>
+    <div class="idioma" id="idioma"></div>
+    <div class="rodape" id="pulso" data-t="comum.lendo">lendo…</div>
+  </nav>
+
+  <main>
+    <section id="tela-agora">
+      <div class="cabeca">
+        <h1 data-t="agora.titulo">O que está acontecendo</h1>
+        <p data-t="agora.intro">A fila de agora e o motivo dela. Quem decide é o bandit: qualidade e saúde
+           são posteriores Beta, e o sorteio é o que o faz continuar explorando em vez
+           de travar no primeiro que deu certo.</p>
+      </div>
+      <div class="placar" id="placar"></div>
+      <h2><span data-t="agora.fila">A fila de agora</span> <span class="risco"></span></h2>
+      <div class="carta" id="ordem"></div>
+      <h2><span data-t="agora.credito">Crédito restante</span> <span class="risco"></span></h2>
+      <div id="credito"><p class="vazio" data-t="comum.consultando">consultando…</p></div>
+      <h2><span data-t="agora.30dias">Últimos 30 dias</span> <span class="risco"></span></h2>
+      <div class="historico" id="historico"><p class="vazio" data-t="agora.sem_hist">sem histórico ainda</p></div>
+    </section>
+
+    <section id="tela-provedores" class="oculto">
+      <div class="cabeca">
+        <h1 data-t="prov.titulo">Provedores por tier</h1>
+        <p data-t="prov.intro">Tier é um grupo, e vários provedores cabem no mesmo. Arraste para mudar
+           de grupo; o botão tira e devolve à cadeia. O que o tier significa na
+           hora de decidir depende da escolha abaixo.</p>
+      </div>
+      <h2><span data-t="prov.como_decidir">Como decidir</span> <span class="risco"></span></h2>
+      <div class="escolhas" id="estrategia"></div>
+      <div id="tiers"></div>
+      <p class="como" data-t="prov.ultimo">Se todos falharem, ninguém assume o lugar deles: o RobinBandit
+         devolve um aviso dizendo que nenhum provedor respondeu. Isso não é um
+         provedor de reserva, e por isso não aparece em nenhum tier.</p>
+      <p class="recado" id="recado-prov"></p>
+    </section>
+
+    <section id="tela-modelos" class="oculto">
+      <div class="cabeca">
+        <h1 data-t="mod.titulo">Modelos de cada provedor</h1>
+        <p data-t="mod.intro">Quando o RobinBandit escolhe um provedor, ele tenta os modelos desta
+           lista de cima para baixo, e para no primeiro que responder. Acrescente
+           um modelo pelo id, ou pergunte ao provedor o que ele tem hoje.</p>
+      </div>
+      <div class="abas" id="filtro-modelos"></div>
+      <div id="modelos"></div>
+      <p class="recado" id="recado-mod"></p>
+    </section>
+
+    <section id="tela-credenciais" class="oculto">
+      <div class="cabeca">
+        <h1 data-t="cred.titulo">Contas e credenciais</h1>
+        <p data-t="cred.intro">A chave que você colar aqui vai para o cofre desta máquina, com permissão
+           0600, e nunca volta na resposta — nem o começo, nem o fim. Um provedor pode
+           ter mais de uma conta, e o rotador alterna entre elas quando uma bate a cota.</p>
+      </div>
+      <p class="recado" id="recado-cred"></p>
+      <div class="trazer">
+        <div>
+          <strong data-t="cred.so_ambiente">Chaves que estão só no ambiente</strong>
+          <p><span data-t="cred.copie_1">Copie para o cofre do RobinBandit e ele deixa de depender do</span>
+             <code>.env</code> <span data-t="cred.copie_2">do projeto que o hospeda. O arquivo de origem não é
+             tocado, e o que já está no cofre fica como está.</span></p>
+        </div>
+        <button type="button" class="acao" id="btn-importar" data-t="cred.trazer">trazer para o cofre</button>
+      </div>
+      <div class="abas" id="filtro-cred"></div>
+      <div id="reservados"></div>
+      <div id="credenciais" data-t="comum.carregando">carregando…</div>
+      <details class="somar-conta">
+        <summary data-t="cred.add_conta">Adicionar outra conta</summary>
+        <p class="dica" data-t="cred.add_intro">Mesma conta do provedor com outra chave, ou uma segunda conta
+           sua. O nome da variável é escolha sua — é por ele que a chave é guardada.</p>
+        <form id="form-conta">
+          <select id="conta-prov"></select>
+          <input id="conta-id" placeholder="apelido, ex.: groq-2" data-t-ph="cred.apelido" autocomplete="off">
+          <input id="conta-var" placeholder="GROQ_API_KEY_2" autocomplete="off" spellcheck="false">
+          <label class="paga"><input type="checkbox" id="conta-paga"> <span data-t="cred.paga">crédito pago</span></label>
+          <button type="submit" class="acao" data-t="cred.criar">criar conta</button>
+        </form>
+      </details>
+      <p class="como" id="onde-cofre"></p>
+    </section>
+
+    <section id="tela-janelas" class="oculto">
+      <div class="cabeca">
+        <h1 data-t="jan.titulo">Janelas de assinatura</h1>
+        <p data-t="jan.intro">Assinatura não fica lenta quando o uso acaba: ela para, e volta numa hora
+           que dá para saber. Aqui está quanto falta para o bloco de cada uma virar —
+           o suficiente para decidir entre esperar e trocar de provedor.</p>
+      </div>
+      <div id="janelas" data-t="comum.carregando">carregando…</div>
+      <div class="ping" id="ping"></div>
+      <p class="recado" id="recado-janela"></p>
+    </section>
+
+    <section id="tela-uso" class="oculto">
+      <div class="cabeca">
+        <h1 data-t="uso.titulo">Tokens gastos</h1>
+        <p data-t="uso.intro">Cada provedor já informa quanto custou a resposta, e esse número era
+           usado para decidir dentro do turno e descartado em seguida. Aqui ele
+           fica: um quadrado por dia, mais escuro nos dias em que você gastou mais.</p>
+      </div>
+      <div class="placar" id="uso-numeros"></div>
+      <h2><span data-t="uso.ano">Seu ano</span> <span class="risco"></span></h2>
+      <div class="calendario" id="uso-calendario"></div>
+      <details id="uso-detalhe">
+        <summary class="dica" style="cursor:pointer;margin-top:26px" data-t="uso.por_provedor">Abrir por provedor</summary>
+        <div class="carta" id="uso-provedores" style="margin-top:12px"></div>
+      </details>
+      <p class="como" data-t="uso.moeda">Em tokens, não em reais: preço muda por modelo, por região e
+         por promoção, e um custo calculado com tabela velha dá a confiança de um
+         número exato sobre um palpite desatualizado.</p>
+    </section>
+
+    <section id="tela-conectar" class="oculto">
+      <div class="cabeca">
+        <h1 data-t="con.titulo">Plugar uma ferramenta</h1>
+        <p><span data-t="con.intro_1">Qualquer ferramenta que deixe trocar o endereço da API passa a rotear
+           por aqui. Copie a configuração da sua e cole onde ela indica. No campo</span>
+           <code>model</code> <span data-t="con.intro_2">vai um apelido do seu trabalho — "codigo", "revisao" —
+           e o RobinBandit aprende separado para cada um.</span></p>
+      </div>
+      <div class="abas" id="abas"></div>
+      <p class="arquivo" id="arquivo"></p>
+      <pre id="config-texto">carregando…</pre>
+      <p class="como" id="como"></p>
+      <p class="conexao" id="conexao"></p>
+    </section>
+  </main>
+</div>
+
+<script>/*TEXTOS*/</script>
+<script>/*SCRIPT*/</script>
+</body>
+</html>
