@@ -5,6 +5,7 @@ Este módulo apenas valida/resolve essas referências e monta os adaptadores.
 """
 from __future__ import annotations
 
+import inspect
 import os
 from typing import Any, Dict, List, Optional
 
@@ -19,6 +20,7 @@ class UnavailableProvider:
     """
 
     def __init__(self, name: str, reason: str):
+        self.supports_tools = False
         self.name = name
         self.models: List[str] = []
         self.last_model = None
@@ -29,6 +31,85 @@ class UnavailableProvider:
 
     async def complete(self, *args, **kwargs):
         raise RuntimeError(self._reason)
+
+
+class ReinforcedProvider:
+    """Tenta uma fila explícita de contas antes de devolver ao Router.
+
+    A fila é interna de propósito: o router enxerga o Reforçado como uma única
+    preferência e, somente se todas as contas falharem, segue para a cadeia
+    normal. Cada conta ainda preserva seu próprio adaptador, modelos e chave.
+    """
+
+    def __init__(self, providers: List[Any], name: str = "ultra"):
+        self.name = name
+        self.providers = [p for p in providers if p is not None]
+        self.models: List[str] = []
+        self.last_model = None
+        self.last_provider = None
+        self.last_usage = None
+        self.last_quota = None
+        self.last_attempted_model = None
+        self.last_reasoning_summary = None
+        self.last_tool_calls = None
+        self.model_failures: List[str] = []
+
+    @staticmethod
+    def _suporta_ferramentas(provider) -> bool:
+        declarado = getattr(provider, "supports_tools", None)
+        if declarado is not None:
+            return bool(declarado)
+        try:
+            parametros = inspect.signature(provider.complete).parameters.values()
+        except (TypeError, ValueError):
+            return False
+        return any(
+            parametro.name == "tools"
+            or parametro.kind is inspect.Parameter.VAR_KEYWORD
+            for parametro in parametros
+        )
+
+    @property
+    def supports_tools(self) -> bool:
+        return any(self._suporta_ferramentas(provider) for provider in self.providers)
+
+    async def complete(self, messages, temperature: float = 0.2, **kwargs):
+        self.last_model = None
+        self.last_provider = None
+        self.last_usage = None
+        self.last_quota = None
+        self.model_failures = []
+        ultimo_erro = None
+        for provider in self.providers:
+            if kwargs.get("tools") and not self._suporta_ferramentas(provider):
+                continue
+            try:
+                parametros = inspect.signature(provider.complete).parameters
+                aceita_tudo = any(
+                    p.kind is inspect.Parameter.VAR_KEYWORD
+                    for p in parametros.values()
+                )
+                extras = {
+                    chave: valor for chave, valor in kwargs.items()
+                    if aceita_tudo or chave in parametros
+                }
+                resposta = await provider.complete(messages, temperature, **extras)
+                self.last_provider = getattr(provider, "name", type(provider).__name__)
+                for atributo in (
+                    "last_model", "last_usage", "last_quota", "last_attempted_model",
+                    "last_reasoning_summary", "last_tool_calls",
+                ):
+                    setattr(self, atributo, getattr(provider, atributo, None))
+                self.model_failures.extend(
+                    list(getattr(provider, "model_failures", []) or [])
+                )
+                return resposta
+            except Exception as exc:
+                ultimo_erro = exc
+                self.model_failures.extend(
+                    list(getattr(provider, "model_failures", []) or [])
+                )
+        raise RuntimeError("nenhuma conta do Reforçado respondeu") from ultimo_erro
 
 def _source_value(settings: Any, name: str, fallback_name: str = "") -> str:
     """Resolve referência sem expor o valor.
@@ -216,8 +297,23 @@ def build_provider(
 def build_provider_set(config: RobinConfig, settings: Any = None) -> Dict[str, Any]:
     """Monta todos os provedores configurados, inclusive o fallback local."""
     _configure_runtime(config)
+    from . import account_config
+
+    # Um endpoint publico sem chave nao prova que a pessoa escolheu usa-lo.
+    # Sem esta guarda, `chave_opcional` bastava para o LLM7 entrar sozinho na
+    # cadeia, embora ele esteja fora do `chain_order` de fabrica. Credencial
+    # explicita ou participacao escolhida continuam sendo opt-in suficiente.
+    escolhidos = set(account_config.cadeia() or config.chain_order)
     out: Dict[str, Any] = {}
-    for key in config.providers:
+    for key, spec in config.providers.items():
+        if spec.get("opt_in") and key not in escolhidos:
+            tem_credencial = _source_value(
+                settings,
+                str(spec.get("api_key_env") or ""),
+                str(spec.get("api_key_fallback_env") or ""),
+            )
+            if not tem_credencial:
+                continue
         provider = build_provider(config, key, settings)
         if provider is not None:
             out[key] = provider
@@ -239,19 +335,34 @@ def build_tier_provider(
     tier: str,
     settings: Any = None,
 ):
-    """Monta Reforçado/Dedicado usando a conta efetivamente escolhida.
+    """Monta Reforçado/Dedicado usando as contas efetivamente escolhidas.
 
     A resolução ocorre por request. Assim trocar uma chave ou apontar o tier
     para outra conta no painel passa a valer sem reiniciar o processo.
     """
+    from . import account_config
     from .accounts import catalogo_efetivo
 
     _configure_runtime(config)
     tier_key = str(tier or "").strip().lower()
     if tier_key not in {"ultra", "ultra_max"}:
         raise ValueError("tier deve ser ultra (Reforçado) ou ultra_max (Dedicado)")
-    account = catalogo_efetivo(settings, config).conta_do_tier(tier_key)
-    if account is None:
+
+    catalogo = catalogo_efetivo(settings, config)
+    contas = []
+    if tier_key == "ultra":
+        # O painel pode montar uma fila de qualquer tamanho e misturar contas
+        # pagas, gratuitas ou autenticadas por CLI. Sem escolha explícita,
+        # preserva o único alvo legado declarado em `tiers.ultra`.
+        contas = [
+            conta for conta_id in account_config.ordem_do_reforcado()
+            if (conta := catalogo.obter(conta_id)) is not None
+        ]
+    if not contas:
+        conta_legada = catalogo.conta_do_tier(tier_key)
+        contas = [conta_legada] if conta_legada is not None else []
+
+    if not contas:
         # `ultra_max` não é mais um provedor: quem serve os dois tiers é a
         # conta paga declarada com `selection_tier`.
         alvo = tier_key if tier_key in config.providers else _dono_do_tier(config, tier_key)
@@ -259,30 +370,41 @@ def build_tier_provider(
         return provider or UnavailableProvider(
             tier_key, f"{tier_key} não possui conta/credencial configurada"
         )
-    source_key = tier_key if account.id == tier_key else account.provider
-    if source_key not in config.providers:
-        raise ValueError(
-            f"conta '{account.id}' usa provedor '{source_key}' ausente no YAML Robin"
+
+    montados = []
+    for conta in contas:
+        source_key = tier_key if conta.id == tier_key else conta.provider
+        if source_key not in config.providers:
+            raise ValueError(
+                f"conta '{conta.id}' usa provedor '{source_key}' ausente no YAML Robin"
+            )
+        # A conta vem primeiro: quem escolheu os modelos dela tomou a decisão
+        # mais recente. O modelo do tier é apenas o padrão legado.
+        do_tier = str(
+            (config.providers.get(source_key) or {})
+            .get("modelo_do_tier", {})
+            .get(tier_key, "")
+        ).strip()
+        models = list(conta.models) or (
+            [do_tier] if do_tier else config.provider_models(source_key)
         )
-    # Reforçado e Dedicado deixaram de ser dois provedores: são a mesma conta
-    # paga com modelos diferentes, e o YAML diz qual é de quem. Sem isto, os
-    # dois tiers pegariam o primeiro modelo da lista e ficariam idênticos.
-    #
-    # A conta vem primeiro: quem escolheu os modelos dela no painel tomou a
-    # decisão mais recente, e o padrão do YAML não pode passar por cima.
-    do_tier = str((config.providers.get(source_key) or {}).get("modelo_do_tier", {}).get(tier_key, "")).strip()
-    models = list(account.models) or ([do_tier] if do_tier else config.provider_models(source_key))
-    provider = build_provider(
-        config,
-        source_key,
-        settings,
-        models=models,
-        name=tier_key,
-        api_key=account.resolver_chave(),
-    )
-    return provider or UnavailableProvider(
-        tier_key, f"conta '{account.id}' não possui credencial ou modelos válidos"
-    )
+        runtime_name = conta.id if tier_key == "ultra" else tier_key
+        provider = build_provider(
+            config,
+            source_key,
+            settings,
+            models=models,
+            name=runtime_name,
+            api_key=conta.resolver_chave(),
+        )
+        montados.append(provider or UnavailableProvider(
+            runtime_name,
+            f"conta '{conta.id}' não possui credencial ou modelos válidos",
+        ))
+
+    if tier_key == "ultra":
+        return ReinforcedProvider(montados, name="ultra")
+    return montados[0]
 
 
 def describe_from_config(config: RobinConfig, settings: Any = None) -> List[Dict[str, Any]]:

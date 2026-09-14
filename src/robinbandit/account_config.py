@@ -2,8 +2,8 @@
 
 Separado de `secrets.py` de propósito. O cofre guarda **segredo** e por
 isso é paranoico: lista branca, 0600, nada volta pra tela. Isto aqui é
-**configuração** comum — nome de conta, quais modelos usar, qual conta serve o
-Dedicado — e pode ser lido, mostrado, versionado por quem quiser.
+**configuração** comum: nome de conta, modelos e a ordem do Reforçado. Ela pode
+ser lida, mostrada e versionada por quem quiser.
 
 A regra que decide o desenho: **isto é uma camada por cima do que o ambiente já
 descobriu, nunca um substituto.** Quem já tem tudo no `.env` continua
@@ -64,7 +64,7 @@ def caminho_da_config() -> Path:
 
 def carregar() -> Dict[str, Any]:
     vazio = {
-        "contas": [], "tiers": {}, "provedores": {}, "modelos": {},
+        "contas": [], "tiers": {}, "reforcado": [], "provedores": {}, "modelos": {},
         "modelos_por_papel": {},
         # Como decidir e quem entra na cadeia. Sem estarem aqui, a normalizacao
         # abaixo descartava os dois na leitura: gravava certo e voltava vazio.
@@ -86,6 +86,14 @@ def carregar() -> Dict[str, Any]:
     return {
         "contas": [c for c in (dados.get("contas") or []) if isinstance(c, dict)],
         "tiers": {str(k): str(v) for k, v in (dados.get("tiers") or {}).items()},
+        # Lista ordenada de contas tentadas pelo Reforçado antes da rota normal.
+        # Instalações antigas tinham apenas `tiers.ultra`; o runtime o usa como
+        # fallback quando esta lista ainda não foi gravada.
+        "reforcado": [
+            str(conta).strip()
+            for conta in (dados.get("reforcado") or [])
+            if str(conta).strip()
+        ],
         # provedor -> tier de roteamento (1 preferencial ... 3 ultimo recurso).
         "provedores": {str(k): v for k, v in (dados.get("provedores") or {}).items()},
         # provedor -> modelos escolhidos no catalogo vivo. Configuracao, nunca segredo.
@@ -173,6 +181,7 @@ def remover_conta(conta_id: str) -> bool:
         # O tier que apontava pra ela fica órfão: limpa junto, senão o catálogo
         # recusa carregar por apontar pra id inexistente.
         dados["tiers"] = {t: v for t, v in dados["tiers"].items() if v != cid}
+        dados["reforcado"] = [conta for conta in dados["reforcado"] if conta != cid]
         if len(dados["contas"]) == antes:
             return False
         _gravar(dados)
@@ -196,6 +205,38 @@ def apontar_tier(tier: str, conta_id: str, ids_validos: Optional[List[str]] = No
         else:
             dados["tiers"].pop(t, None)   # string vazia = voltar ao padrão do ambiente
         _gravar(dados)
+
+
+def ordem_do_reforcado() -> List[str]:
+    """Contas preferidas, na ordem. Vazio mantém o padrão legado do YAML."""
+    return list(carregar().get("reforcado") or [])
+
+
+def definir_ordem_do_reforcado(
+    contas: List[str], ids_validos: Optional[List[str]] = None,
+) -> List[str]:
+    """Grava a fila do Reforçado sem limitar por preço ou tipo de autenticação.
+
+    Uma assinatura, uma chave gratuita e uma sessão de CLI são igualmente
+    válidas aqui. O que manda é a ordem escolhida pela pessoa.
+    """
+    ordem: List[str] = []
+    for conta in contas or []:
+        cid = str(conta or "").strip()
+        if cid and cid not in ordem:
+            ordem.append(cid)
+    if ids_validos is not None:
+        invalidas = [cid for cid in ordem if cid not in ids_validos]
+        if invalidas:
+            raise ValueError(
+                f"conta '{invalidas[0]}' não existe. "
+                f"Disponíveis: {', '.join(sorted(ids_validos))}."
+            )
+    with _LOCK:
+        dados = carregar()
+        dados["reforcado"] = ordem
+        _gravar(dados)
+    return ordem
 
 
 # O tier de roteamento entra no score de CADA escolha de provedor, então ler o
@@ -322,7 +363,7 @@ def definir_modelos_de_provedor(provider: str, modelos: List[str], papel: str = 
 # Isto e escolha de quem usa, nao do repositorio: a mesma instalacao pode
 # querer "aprenda com o uso" hoje e "obedeca meus tiers" amanha.
 
-ESTRATEGIAS = ("adaptive", "tier")
+ESTRATEGIAS = ("adaptive", "tier", "fixed", "round_robin")
 
 
 def estrategia(padrao: str = "adaptive") -> str:
@@ -334,6 +375,10 @@ def estrategia(padrao: str = "adaptive") -> str:
     `tier`: o tier e barreira. O tier 2 so e tentado quando o tier 1 inteiro
     falhou. E a forma de dizer "va nestes primeiro, mesmo que falhem; so
     depois gaste meus creditos".
+
+    `fixed`: respeita exatamente a ordem da cadeia; indisponiveis vao para o
+    fim durante o cooldown. `round_robin`: gira essa mesma cadeia a cada
+    tentativa concluida para distribuir carga sem o painel mover o cursor.
     """
     escolhida = str(carregar().get("estrategia") or "").strip().lower()
     return escolhida if escolhida in ESTRATEGIAS else str(padrao or "adaptive")

@@ -1,16 +1,15 @@
-"""Quantos tokens você gastou, por dia e por provedor.
+"""Uso de tokens e custo informado, por dia e por provedor.
 
-Cada provedor já devolve `last_usage` e a cadeia já soma o turno inteiro. O
-número existia, era usado para decidir dentro do turno, e depois era jogado
-fora — então a pergunta que qualquer pessoa faz no fim do mês, *quanto eu
-gastei e com quem*, não tinha resposta em lugar nenhum.
+Cada provedor já devolve ``last_usage`` e a cadeia soma o turno inteiro. O
+número existia, era usado para decidir dentro do turno e depois era descartado.
+Agora ele fica disponível no painel. O custo também é preservado quando a
+resposta do provedor o informa; caso contrário, aparece como desconhecido.
 
 Um dia é uma linha por provedor. Um ano cabe em alguns KB, e o arquivo é do
 dono da máquina: o gasto dele não viaja no clone.
 
-Isto conta TOKENS, não dinheiro. Preço muda por modelo, por região e por
-promoção, e um custo em reais calculado com tabela velha é pior que nenhum —
-dá a confiança de um número exato sobre um palpite desatualizado.
+Não mantemos uma tabela local de preços. Preço muda por modelo, região e
+promoção, e um valor calculado com tabela velha daria precisão falsa.
 """
 from __future__ import annotations
 
@@ -74,17 +73,28 @@ def registrar(provedor: str, uso: Optional[Dict[str, Any]]) -> None:
         # parecer que ele foi usado de graça.
         return
     cacheado = int(uso.get("cacheado") or 0)
+    custo_bruto = uso.get("custo_usd")
+    try:
+        custo_usd = float(custo_bruto) if custo_bruto is not None else None
+    except (TypeError, ValueError):
+        custo_usd = None
     dia = _hoje()
 
     with _LOCK:
         dados = _ler()
         por_dia = dados.setdefault(dia, {})
-        linha = por_dia.setdefault(chave, {"entrada": 0, "saida": 0, "total": 0, "cacheado": 0, "chamadas": 0})
+        linha = por_dia.setdefault(chave, {
+            "entrada": 0, "saida": 0, "total": 0, "cacheado": 0,
+            "chamadas": 0, "custo_usd": 0.0, "chamadas_com_custo": 0,
+        })
         linha["entrada"] += entrada
         linha["saida"] += saida
         linha["total"] += total
         linha["cacheado"] += cacheado
         linha["chamadas"] += 1
+        if custo_usd is not None and custo_usd >= 0:
+            linha["custo_usd"] = float(linha.get("custo_usd") or 0) + custo_usd
+            linha["chamadas_com_custo"] = int(linha.get("chamadas_com_custo") or 0) + 1
 
         # Poda aqui: sem isto o arquivo cresce para sempre, um dia por vez.
         if len(dados) > DIAS_GUARDADOS:
@@ -123,20 +133,24 @@ def calendario(dias: int = DIAS_GUARDADOS, provedor: str = "") -> List[Dict[str,
 def por_provedor(dias: int = 30) -> List[Dict[str, Any]]:
     """Quem consumiu mais no período, do maior para o menor."""
     dados = _ler()
-    acumulado: Dict[str, Dict[str, int]] = {}
+    acumulado: Dict[str, Dict[str, Any]] = {}
     for dia in _dias(max(1, min(int(dias or 30), DIAS_GUARDADOS))):
         for nome, linha in (dados.get(dia) or {}).items():
             alvo = acumulado.setdefault(
-                nome, {"entrada": 0, "saida": 0, "total": 0, "cacheado": 0, "chamadas": 0}
+                nome, {
+                    "entrada": 0, "saida": 0, "total": 0, "cacheado": 0,
+                    "chamadas": 0, "custo_usd": 0.0, "chamadas_com_custo": 0,
+                }
             )
-            for campo in alvo:
+            for campo in ("entrada", "saida", "total", "cacheado", "chamadas", "chamadas_com_custo"):
                 alvo[campo] += int(linha.get(campo, 0))
+            alvo["custo_usd"] += float(linha.get("custo_usd", 0) or 0)
     saida = [{"provedor": nome, **valores} for nome, valores in acumulado.items()]
     saida.sort(key=lambda item: -item["total"])
     return saida
 
 
-def total(dias: int = 30) -> Dict[str, int]:
+def total(dias: int = 30) -> Dict[str, Any]:
     linhas = por_provedor(dias)
     return {
         "entrada": sum(l["entrada"] for l in linhas),
@@ -145,6 +159,8 @@ def total(dias: int = 30) -> Dict[str, int]:
         "cacheado": sum(l["cacheado"] for l in linhas),
         "chamadas": sum(l["chamadas"] for l in linhas),
         "provedores": len(linhas),
+        "custo_usd": round(sum(float(l["custo_usd"]) for l in linhas), 6),
+        "chamadas_com_custo": sum(l["chamadas_com_custo"] for l in linhas),
     }
 
 

@@ -375,7 +375,7 @@ class ChainProvider:
                         result = await provider.complete(messages, temperature)
                     latency_ms = (time.perf_counter() - inicio) * 1000.0
                     self.last_model = getattr(provider, "last_model", type(provider).__name__)
-                    self.last_provider = pname
+                    self.last_provider = getattr(provider, "last_provider", None) or pname
                     # Tokens do provedor que respondeu, somados no turno.
                     self.last_usage = getattr(provider, "last_usage", None)
                     _somar_uso(self.last_usage)
