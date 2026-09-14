@@ -25,6 +25,11 @@
 
   * { box-sizing: border-box; }
 
+  /* Regras de componentes como `.placar { display: grid }` vencem o estilo
+     nativo de `[hidden]` do navegador. Sem uma regra de autor, o JS marcava os
+     blocos como escondidos e eles continuavam desenhados. */
+  [hidden] { display: none !important; }
+
   body {
     margin: 0; background: var(--fundo); color: var(--bege);
     font: 14px/1.55 ui-sans-serif, -apple-system, "Segoe UI", Roboto, sans-serif;
@@ -102,6 +107,12 @@
   .posicao { font-family: var(--mono); font-size: 12px; color: var(--bege-fraco); width: 34px; }
   .comlogo { display: flex; align-items: center; gap: 9px; }
   .comlogo img, .logo { width: 17px; height: 17px; object-fit: contain; border-radius: 4px; flex: none; }
+  /* SVGs monocromáticos com currentColor viram pretos quando carregados por
+     <img>; imagens externas não herdam a cor do documento. */
+  .logo[src$="/groq.svg"], .logo[src$="/openrouter.svg"],
+  .logo[src$="/ollama.svg"], .logo[src$="/openai.svg"] {
+    filter: invert(91%) sepia(9%) saturate(413%) hue-rotate(348deg) brightness(102%);
+  }
   /* Provedor sem arte ganha a sigla. O nome da classe tem que bater com o que
      o `onerror` da imagem escreve, senao a sigla sai sem estilo nenhum. */
   .logo.falta {
@@ -204,6 +215,10 @@
   .conexao.viva b { color: var(--verde-claro); }
   .conexao.fria { border-color: var(--linha); }
   .conexao.fria b { color: var(--ambar); }
+  .config-bloco { position: relative; }
+  .config-bloco .copiar { position: absolute; top: 10px; right: 10px; z-index: 1;
+    padding: 5px 11px; font-size: 12px; }
+  .config-bloco pre { padding-right: 82px; }
 
   .acao {
     font: inherit; font-size: 14px; background: var(--carta-alta); color: var(--bege);
@@ -239,17 +254,34 @@
   input::placeholder { color: var(--bege-fraco); }
 
   /* ------------------------------------------------------------------ escolhas */
-  .escolhas { display: grid; gap: 10px; max-width: 720px; }
+  .escolhas { display: grid; grid-template-columns: 1fr 1fr; max-width: 820px;
+    border-top: 1px solid var(--linha-fraca); margin-bottom: 24px; }
   .escolha {
-    display: flex; gap: 12px; align-items: flex-start; padding: 14px 16px;
-    border: 1px solid var(--linha-fraca); border-radius: var(--raio); cursor: pointer;
-    background: var(--carta); transition: border-color .12s;
+    display: flex; gap: 12px; align-items: flex-start; padding: 13px 10px;
+    border-bottom: 1px solid var(--linha-fraca); cursor: pointer;
+    transition: background .12s;
   }
-  .escolha:hover { border-color: var(--linha); }
-  .escolha[data-ativa="true"] { border-color: var(--verde); background: rgba(94,122,97,.07); }
+  .escolha:nth-child(odd) { border-right: 1px solid var(--linha-fraca); }
+  .escolha:hover { background: rgba(255,255,255,.02); }
+  .escolha[data-ativa="true"] { background: rgba(94,122,97,.09); }
   .escolha input { margin: 3px 0 0; accent-color: var(--verde-claro); }
   .escolha .titulo { display: block; font-size: 15px; font-weight: 600; }
   .escolha .texto { display: block; font-size: 14px; color: var(--suave); margin-top: 3px; line-height: 1.55; }
+
+  .ordem-cadeia { max-width: 820px; margin: 0 0 28px; }
+  .ordem-cadeia h2 { margin-top: 0; }
+  .ordem-cadeia .dica { margin: -5px 0 12px; }
+  .lista-cadeia { list-style: none; margin: 0; padding: 0;
+    border-top: 1px solid var(--linha-fraca); }
+  .lista-cadeia li { display: grid; grid-template-columns: 22px minmax(130px, 1fr) auto auto;
+    gap: 10px; align-items: center; padding: 8px 4px;
+    border-bottom: 1px solid var(--linha-fraca); }
+  .lista-cadeia code { color: var(--bege-fraco); background: transparent; }
+  .lista-cadeia .mover { display: flex; gap: 4px; }
+  .lista-cadeia button { width: 30px; height: 28px; border: 1px solid var(--linha);
+    border-radius: 7px; background: transparent; color: var(--bege); cursor: pointer; }
+  .lista-cadeia button:hover { border-color: var(--verde-claro); }
+  .lista-cadeia button:disabled { opacity: .25; cursor: default; }
 
   /* ---------------------------------------------------------------- tiers */
   .faixa { border: 1px solid var(--linha-fraca); border-radius: var(--raio);
@@ -368,6 +400,19 @@
   .trazer div, .reservado p { flex: 1 1 260px; }
   .trazer strong, .reservado strong { font-size: 14px; font-weight: 600; }
   .trazer p, .reservado p { margin: 4px 0 0; font-size: 14px; color: var(--suave); }
+  .reforcado-card { border: 1px solid var(--verde); border-radius: var(--raio);
+    padding: 16px 18px; margin-bottom: 18px; background: var(--carta); }
+  .reforcado-card > p:first-child { margin: 0 0 14px; color: var(--suave);
+    font-size: 14px; line-height: 1.55; }
+  .reforcado-card .lista-cadeia { margin-bottom: 12px; }
+  .reforcado-card .lista-cadeia small { color: var(--ambar); font-size: 11px;
+    margin-left: 5px; font-weight: 500; }
+  .reforcado-card .lista-cadeia .mover { gap: 4px; }
+  .reforcado-card .lista-cadeia .apagar { color: var(--ruim); }
+  .adicionar-ref { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .adicionar-ref select { flex: 1 1 230px; }
+  .reforcado-card .como { margin: 12px 0 0; }
+  .vazio.compacto { padding: 12px 0; margin: 0; }
   .somar-conta { margin-top: 20px; border: 1px dashed var(--linha); border-radius: var(--raio);
     padding: 15px 17px; background: var(--carta); }
   .somar-conta summary { cursor: pointer; font-size: 14px; color: var(--bege); }
@@ -444,6 +489,9 @@
   .gasto .barra span { display: block; height: 100%; background: var(--verde); border-radius: 999px; }
   .gasto .n { font-family: var(--mono); font-size: 14px; font-variant-numeric: tabular-nums;
     min-width: 76px; text-align: right; }
+  .gasto .n small { display: block; color: var(--bege-fraco); font: 11px/1.4 var(--mono); }
+  .gasto .detalhe { color: var(--suave); font: 12px/1.45 var(--mono);
+    min-width: 105px; text-align: right; }
 
   /* Sem isto TODAS as telas renderizam empilhadas e a troca de aba vira
      rolagem. Foi o que a reescrita do estilo derrubou. */
@@ -512,6 +560,10 @@
     main { padding: 20px 14px 60px; }
     h1 { font-size: 22px; }
     .cabeca p { font-size: 13px; }
+    .escolhas { grid-template-columns: 1fr; }
+    .escolha:nth-child(odd) { border-right: 0; }
+    .lista-cadeia li { grid-template-columns: 22px 1fr auto; }
+    .lista-cadeia code { display: none; }
 
     /* A tabela rola dentro da propria caixa, em vez de alargar a pagina. */
     .carta { overflow-x: auto; }

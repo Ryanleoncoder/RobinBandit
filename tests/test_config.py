@@ -82,6 +82,29 @@ def test_factory_monta_provider_por_referencia_sem_expor_segredo():
     assert "segredo-nao-pode-sair" not in serialized
 
 
+def test_endpoint_anonimo_exige_escolha_explicita(monkeypatch, tmp_path):
+    """Nao ter chave nao autoriza ligar um servico remoto automaticamente."""
+    from robinbandit import account_config
+    from robinbandit import providers as provider_factory
+
+    monkeypatch.setenv("ROBINBANDIT_ACCOUNTS_PATH", str(tmp_path / "contas.json"))
+    config = RobinConfig.from_mapping({
+        "providers": {
+            "normal": {"models": ["modelo"]},
+            "anonimo": {"models": ["modelo"], "opt_in": True},
+        },
+        "routing": {"chain_order": ["normal"]},
+    })
+    monkeypatch.setattr(
+        provider_factory, "build_provider", lambda _config, key, _settings=None: key
+    )
+
+    assert provider_factory.build_provider_set(config) == {"normal": "normal"}
+
+    account_config.definir_cadeia(["anonimo"], list(config.providers))
+    assert provider_factory.build_provider_set(config)["anonimo"] == "anonimo"
+
+
 def test_factory_filtra_modelos_aposentados_do_override_e_desliga_github():
     config = RobinConfig.from_yaml(ROOT / "config" / "sentury.yaml")
 

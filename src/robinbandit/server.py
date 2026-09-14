@@ -16,7 +16,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 
 from .clientes import Clientes as _Clientes
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from pathlib import Path
 
@@ -77,6 +77,23 @@ class _PedidoAnthropic(BaseModel):
     stream: bool = False
 
 
+class _PedidoResponses(BaseModel):
+    """Campos do protocolo usado pelo Codex CLI atual.
+
+    Itens desconhecidos continuam aceitos pelo Pydantic e são descartados. A
+    compatibilidade que afirmamos fica explícita aqui: histórico, ferramentas,
+    esforço de raciocínio e SSE.
+    """
+
+    input: Any
+    model: Optional[str] = None
+    instructions: Any = None
+    tools: List[Dict[str, Any]] = Field(default_factory=list)
+    reasoning: Optional[Dict[str, Any]] = None
+    temperature: Optional[float] = 0.2
+    stream: bool = False
+
+
 class _Feedback(BaseModel):
     id: str
     good: bool
@@ -121,6 +138,10 @@ class _TierDaConta(BaseModel):
     conta: str
 
 
+class _OrdemDoReforcado(BaseModel):
+    contas: List[str]
+
+
 class _Credencial(BaseModel):
     """O valor entra; nunca sai. Só o nome da variável volta nas respostas."""
 
@@ -161,6 +182,25 @@ def create_app(providers: List[Any], router, cache=None, config=None) -> FastAPI
     # Quem está do outro lado, para a tela Conectar responder "funcionou?".
     clientes = _Clientes()
 
+    def rota_da_chamada(request: Request):
+        """Traduz o modo HTTP sem sequestrar o campo `model` do cliente."""
+        modo = str(request.headers.get("x-robinbandit-mode") or "router").strip().lower()
+        if modo in {"", "auto", "normal", "router"}:
+            return list(providers), None
+        if modo not in {"hybrid", "reinforced", "reforcado"}:
+            raise HTTPException(
+                400,
+                "X-RobinBandit-Mode aceita normal, router ou reinforced; "
+                "Dedicado é configurado pelo Sentury.",
+            )
+        if config is None:
+            raise HTTPException(400, "Reforçado exige um catálogo configurado")
+        from .providers import build_tier_provider
+        from .selection import RouteSelection
+
+        reforcado = build_tier_provider(config, "ultra")
+        return [reforcado, *providers], RouteSelection.hybrid("ultra")
+
     @app.post("/v1/chat/completions")
     async def chat_completions(pedido: _Pedido, request: Request) -> Dict[str, Any]:
         if pedido.stream:
@@ -173,10 +213,13 @@ def create_app(providers: List[Any], router, cache=None, config=None) -> FastAPI
         clientes.anotar(request.headers.get("user-agent", ""), contexto)
         # Uma cadeia por request: last_provider é atributo de instância e uma
         # cadeia compartilhada embaralharia as respostas concorrentes.
-        chain = ChainProvider(providers, router, cache=cache)
+        provedores_da_chamada, selecao = rota_da_chamada(request)
+        chain = ChainProvider(provedores_da_chamada, router, cache=cache)
         mensagens = [m.model_dump() for m in pedido.messages]
         try:
-            texto = await chain.complete(mensagens, pedido.temperature, context=contexto)
+            texto = await chain.complete(
+                mensagens, pedido.temperature, context=contexto, selection=selecao,
+            )
         except RuntimeError as exc:
             raise HTTPException(502, str(exc)) from exc
 
@@ -186,9 +229,7 @@ def create_app(providers: List[Any], router, cache=None, config=None) -> FastAPI
             while len(decisoes) > _MAX_PENDENTES:
                 decisoes.popitem(last=False)
 
-        # Sem `usage`: os provedores são duck-typed e o router não conta tokens.
-        # Devolver zeros seria mentira que estraga a contabilidade de quem chama.
-        return {
+        corpo = {
             "id": rid,
             "object": "chat.completion",
             "created": int(time.time()),
@@ -199,6 +240,15 @@ def create_app(providers: List[Any], router, cache=None, config=None) -> FastAPI
                 "finish_reason": "stop",
             }],
         }
+        if isinstance(chain.last_usage, dict):
+            entrada = int(chain.last_usage.get("entrada") or 0)
+            saida = int(chain.last_usage.get("saida") or 0)
+            corpo["usage"] = {
+                "prompt_tokens": entrada,
+                "completion_tokens": saida,
+                "total_tokens": int(chain.last_usage.get("total") or 0) or entrada + saida,
+            }
+        return corpo
 
     @app.post("/v1/messages")
     async def messages(pedido: _PedidoAnthropic, request: Request) -> Any:
@@ -222,15 +272,18 @@ def create_app(providers: List[Any], router, cache=None, config=None) -> FastAPI
         if not mensagens:
             raise HTTPException(400, "nenhuma mensagem de texto no pedido")
 
-        chain = ChainProvider(providers, router, cache=cache)
+        provedores_da_chamada, selecao = rota_da_chamada(request)
+        chain = ChainProvider(provedores_da_chamada, router, cache=cache)
         try:
-            texto = await chain.complete(mensagens, pedido.temperature, context=contexto)
+            texto = await chain.complete(
+                mensagens, pedido.temperature, context=contexto, selection=selecao,
+            )
         except RuntimeError as exc:
             # No envelope da Anthropic: o cliente lê `error.message` e mostra o
             # motivo real em vez de "unknown error".
             return JSONResponse(status_code=502, content=anthropic_api.erro(str(exc)))
 
-        corpo = anthropic_api.resposta(texto, chain.last_model)
+        corpo = anthropic_api.resposta(texto, chain.last_model, chain.last_usage)
         if chain.last_provider:
             decisoes[corpo["id"]] = (chain.last_provider, contexto)
             while len(decisoes) > _MAX_PENDENTES:
@@ -244,6 +297,60 @@ def create_app(providers: List[Any], router, cache=None, config=None) -> FastAPI
             return StreamingResponse(
                 anthropic_api.eventos(corpo),
                 media_type="text/event-stream",
+            )
+        return corpo
+
+    @app.post("/v1/responses")
+    async def responses(pedido: _PedidoResponses, request: Request) -> Any:
+        """Responses API para o Codex entrar pelo mesmo roteador.
+
+        O protocolo é traduzido na borda. A conta ChatGPT/Codex de saída
+        continua sendo apenas mais um provedor e não é confundida com o cliente
+        que chamou esta rota.
+        """
+        from . import responses_api
+
+        contexto = pedido.model
+        clientes.anotar(request.headers.get("user-agent", ""), contexto)
+        mensagens = responses_api.para_mensagens(pedido.input, pedido.instructions)
+        if not mensagens:
+            raise HTTPException(400, "nenhuma mensagem utilizável no pedido")
+        ferramentas, personalizadas = responses_api.para_ferramentas(pedido.tools)
+        esforco = None
+        if isinstance(pedido.reasoning, dict):
+            esforco = pedido.reasoning.get("effort")
+
+        provedores_da_chamada, selecao = rota_da_chamada(request)
+        chain = ChainProvider(provedores_da_chamada, router, cache=cache)
+        try:
+            texto = await chain.complete(
+                mensagens,
+                pedido.temperature if pedido.temperature is not None else 0.2,
+                context=contexto,
+                selection=selecao,
+                tools=ferramentas or None,
+                reasoning_effort=str(esforco) if esforco else None,
+            )
+        except RuntimeError as exc:
+            raise HTTPException(502, str(exc)) from exc
+
+        corpo = responses_api.resposta(
+            texto,
+            chain.last_model,
+            chain.last_usage,
+            chain.last_tool_calls,
+            personalizadas,
+        )
+        if chain.last_provider:
+            decisoes[corpo["id"]] = (chain.last_provider, contexto)
+            while len(decisoes) > _MAX_PENDENTES:
+                decisoes.popitem(last=False)
+
+        if pedido.stream:
+            return StreamingResponse(
+                responses_api.eventos(corpo),
+                media_type="text/event-stream",
+                headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
             )
         return corpo
 
@@ -363,14 +470,14 @@ def create_app(providers: List[Any], router, cache=None, config=None) -> FastAPI
             "provedores": provedores,
             "ordem": ordem,
             "chamadas": chamadas,
+            "estrategia": getattr(router, "_strategy", "adaptive"),
             # Com quem já chamou junto: a tela Conectar entregava a
             # configuração e parava aí, deixando "colei no lugar certo?" para o
             # primeiro erro dentro do agente — o pior lugar para descobrir.
             "ferramentas": _com_conexao(cli_tools.todas(base), clientes),
             "rodape": (
-                "A ordem vem do bandit, não de uma lista fixa: qualidade e saúde "
-                "são posteriores Beta, e o sorteio é o que faz ele continuar "
-                "explorando em vez de travar no primeiro que deu certo."
+                "A fila segue o modo escolhido em Provedores. Saúde e cooldown "
+                "continuam protegendo as chamadas em todos os modos."
             ),
         }
 
@@ -454,13 +561,20 @@ def create_app(providers: List[Any], router, cache=None, config=None) -> FastAPI
                 getattr(router, "_strategy", "adaptive")),
             "estrategias": {
                 "adaptive": (
-                    "O tier é um bônus. Um provedor do tier 2 que vem "
-                    "respondendo melhor passa na frente do tier 1."
+                    "Aprende com qualidade, saúde, latência e cota. O tier "
+                    "ajuda, mas um provedor melhor pode passar na frente."
                 ),
                 "tier": (
-                    "O tier é barreira. O tier 2 só é tentado quando o tier 1 "
-                    "inteiro falhou — \"vá nestes primeiro, mesmo que falhem; "
-                    "só depois gaste meus créditos\"."
+                    "Esgota o tier 1 antes do 2 e o 2 antes do 3; dentro de "
+                    "cada grupo, continua aprendendo."
+                ),
+                "fixed": (
+                    "Segue a ordem exata da sua cadeia. Só passa ao próximo "
+                    "quando o anterior está indisponível ou falha."
+                ),
+                "round_robin": (
+                    "Alterna o primeiro provedor a cada tentativa concluída, "
+                    "distribuindo a carga entre os disponíveis."
                 ),
             },
             "tiers": {
@@ -513,7 +627,21 @@ def create_app(providers: List[Any], router, cache=None, config=None) -> FastAPI
             nova = account_config.definir_cadeia(payload.nomes, list(catalogo.keys()) or None)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
-        return {"cadeia": nova, "aviso": "vale para os provedores montados no próximo arranque"}
+        # Reordenar quem já está montado vale imediatamente. Entrar com um
+        # provedor que ainda não foi instanciado continua exigindo reinício.
+        atuais = {getattr(p, "name", type(p).__name__): p for p in providers}
+        ultimo = str(getattr(config, "last_resort", "") or "").strip().lower()
+        ativos = [atuais[nome] for nome in nova if nome in atuais and nome != ultimo]
+        if ultimo in atuais:
+            ativos.append(atuais[ultimo])
+        if ativos and isinstance(providers, list):
+            providers[:] = ativos
+        pendentes = [nome for nome in nova if nome not in atuais]
+        return {
+            "cadeia": nova,
+            "aplicada_agora": [getattr(p, "name", type(p).__name__) for p in providers],
+            "reiniciar_para": pendentes,
+        }
 
     @app.put("/config/tier")
     async def trocar_tier(payload: _Tier) -> Dict[str, Any]:
@@ -561,10 +689,11 @@ def create_app(providers: List[Any], router, cache=None, config=None) -> FastAPI
         sessão. Listadas junto com as outras e sem essa distinção, elas
         apareciam como "sem chave" com o login funcionando.
         """
+        from . import account_config
         from .accounts import catalogo_efetivo
 
         if config is None:
-            return {"contas": [], "tiers": {}, "alvos": {}}
+            return {"contas": [], "tiers": {}, "alvos": {}, "reforcado": []}
         painel = catalogo_efetivo(None, config).para_painel()
         rotulos = {
             chave: str(spec.get("label") or chave)
@@ -583,7 +712,16 @@ def create_app(providers: List[Any], router, cache=None, config=None) -> FastAPI
                 alvos[str(tier)] = rotulos_de_tier.get(str(tier), str(tier))
         for tier in painel.get("tiers", {}):
             alvos.setdefault(str(tier), rotulos_de_tier.get(str(tier), str(tier)))
+        painel["agent_mode"] = getattr(config, "agent_mode", "universal")
+        # Dedicado pertence ao fluxo do Sentury e já tem interface lá. Repetir
+        # o controle no painel do RobinBandit criava duas fontes de verdade.
+        # Reforçado permanece porque é a seleção híbrida do núcleo.
+        alvos = {tier: label for tier, label in alvos.items() if tier == "ultra"}
         painel["alvos"] = alvos
+        ordem = account_config.ordem_do_reforcado()
+        if not ordem and painel.get("tiers", {}).get("ultra"):
+            ordem = [painel["tiers"]["ultra"]]
+        painel["reforcado"] = ordem
         return painel
 
     @app.post("/contas")
@@ -629,6 +767,23 @@ def create_app(providers: List[Any], router, cache=None, config=None) -> FastAPI
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return {"tier": req.tier, "conta": req.conta}
+
+    @app.put("/contas/reforcado")
+    async def ordenar_reforcado(req: _OrdemDoReforcado) -> Dict[str, Any]:
+        """Escolhe as contas tentadas, em ordem, antes da rota normal."""
+        from . import account_config
+        from .accounts import catalogo_efetivo
+
+        if config is None:
+            raise HTTPException(status_code=400, detail="sem catálogo carregado")
+        validos = [c.id for c in catalogo_efetivo(None, config).listar()]
+        try:
+            ordem = account_config.definir_ordem_do_reforcado(
+                req.contas, ids_validos=validos,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {"contas": ordem}
 
     @app.get("/credenciais")
     async def credenciais() -> Dict[str, Any]:
@@ -841,12 +996,7 @@ def create_app(providers: List[Any], router, cache=None, config=None) -> FastAPI
 
     @app.get("/uso")
     async def uso_de_tokens(dias: int = 365) -> Dict[str, Any]:
-        """Quantos tokens foram gastos, por dia e por provedor.
-
-        Em tokens, nunca em dinheiro: preço muda por modelo, por região e por
-        promoção, e um custo calculado com tabela velha dá a confiança de um
-        número exato sobre um palpite desatualizado.
-        """
+        """Tokens por dia e provedor, mais custo quando ele foi informado."""
         from . import uso as _uso
 
         limite = max(1, min(int(dias or 365), _uso.DIAS_GUARDADOS))

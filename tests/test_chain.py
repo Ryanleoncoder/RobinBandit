@@ -2,6 +2,7 @@
 import pytest
 
 from robinbandit import ChainProvider, ProviderRouter, classify_error
+from robinbandit.providers import ReinforcedProvider
 
 
 def test_classify_error():
@@ -65,6 +66,115 @@ async def test_cascateia_para_outro_provider(sem_espera):
     out = await ch.complete([{"role": "user", "content": "oi"}])
     assert out == "fallback ok"
     assert ruim.calls <= 1  # nunca retentado
+
+
+async def test_reforcado_tenta_contas_na_ordem_e_preserva_quem_respondeu():
+    primeira = _Prov([Exception("sem saldo")], name="assinatura")
+    segunda = _Prov(["resposta gratuita"], name="gratuita")
+    reforcado = ReinforcedProvider([primeira, segunda])
+    chain = ChainProvider([reforcado], ProviderRouter())
+
+    assert await chain.complete([{"role": "user", "content": "oi"}]) == "resposta gratuita"
+    assert primeira.calls == 1 and segunda.calls == 1
+    assert chain.last_provider == "gratuita"
+
+
+async def test_chain_repassa_ferramentas_e_preserva_a_chamada():
+    class ComFerramenta:
+        name = "com-ferramenta"
+        last_model = "com-ferramenta:modelo"
+        last_usage = None
+        last_quota = None
+
+        async def complete(self, messages, temperature=0.2, tools=None, reasoning_effort=None):
+            assert tools[0]["function"]["name"] == "buscar"
+            assert reasoning_effort == "medium"
+            self.last_tool_calls = [{"id": "call_1", "function": {"name": "buscar"}}]
+            return ""
+
+    chain = ChainProvider([ComFerramenta()], ProviderRouter())
+    await chain.complete(
+        [{"role": "user", "content": "busque"}],
+        tools=[{"type": "function", "function": {"name": "buscar"}}],
+        reasoning_effort="medium",
+    )
+    assert chain.last_tool_calls[0]["id"] == "call_1"
+
+
+async def test_ferramentas_pulam_provedor_que_nao_as_preserva():
+    class SemFerramenta(_Prov):
+        supports_tools = False
+
+    class ComFerramenta:
+        name = "com-ferramenta"
+        supports_tools = True
+        last_model = "com-ferramenta:modelo"
+
+        def __init__(self):
+            self.calls = 0
+
+        async def complete(self, messages, temperature=0.2, tools=None):
+            self.calls += 1
+            assert tools
+            return "chamada preservada"
+
+    sem = SemFerramenta(["não pode responder"], name="sem-ferramenta")
+    com = ComFerramenta()
+    chain = ChainProvider([sem, com], ProviderRouter())
+
+    assert await chain.complete(
+        [{"role": "user", "content": "edite"}],
+        tools=[{"type": "function", "function": {"name": "editar"}}],
+    ) == "chamada preservada"
+    assert sem.calls == 0
+    assert com.calls == 1
+
+
+async def test_ferramentas_falham_claro_sem_provedor_compativel():
+    class SemFerramenta(_Prov):
+        supports_tools = False
+
+    chain = ChainProvider(
+        [SemFerramenta(["não pode responder"], name="sem-ferramenta")],
+        ProviderRouter(),
+    )
+    with pytest.raises(RuntimeError, match="aceita ferramentas"):
+        await chain.complete(
+            [{"role": "user", "content": "edite"}],
+            tools=[{"type": "function", "function": {"name": "editar"}}],
+        )
+
+
+async def test_reforcado_com_ferramentas_pula_conta_incompativel():
+    class SemFerramenta(_Prov):
+        supports_tools = False
+
+    class ComFerramenta:
+        name = "api-compativel"
+        supports_tools = True
+        last_model = "api-compativel:modelo"
+        last_tool_calls = [{"id": "call_reforcado"}]
+
+        def __init__(self):
+            self.calls = 0
+
+        async def complete(self, messages, temperature=0.2, tools=None):
+            self.calls += 1
+            assert tools
+            return "ok"
+
+    sem = SemFerramenta(["não pode responder"], name="assinatura-cli")
+    com = ComFerramenta()
+    reforcado = ReinforcedProvider([sem, com])
+    chain = ChainProvider([reforcado], ProviderRouter())
+
+    assert await chain.complete(
+        [{"role": "user", "content": "edite"}],
+        tools=[{"type": "function", "function": {"name": "editar"}}],
+    ) == "ok"
+    assert sem.calls == 0
+    assert com.calls == 1
+    assert chain.last_provider == "api-compativel"
 
 
 async def test_falha_alimenta_o_router(sem_espera):
