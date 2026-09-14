@@ -30,6 +30,12 @@ def _normalizar_usage(bruto):
     cacheado = cacheado or int(bruto.get("cache_read_input_tokens") or 0)
     if cacheado:
         usado["cacheado"] = cacheado
+    custo = bruto.get("cost")
+    try:
+        if custo is not None and float(custo) >= 0:
+            usado["custo_usd"] = float(custo)
+    except (TypeError, ValueError):
+        pass
     return usado
 
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
@@ -61,6 +67,8 @@ def _groq_effort(model: str, effort: Optional[str]) -> Optional[str]:
 class GroqProvider:
     """O Harness nunca depende de uma única LLM: troca de modelo (ou,
     futuramente, de provedor) sem mudar nenhuma regra do Harness."""
+
+    supports_tools = True
 
     def __init__(self, api_key: str, models: List[str]):
         self.name = "groq"

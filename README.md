@@ -22,16 +22,17 @@ pipx install "robinbandit[server,yaml,providers]"
 robinbandit serve
 ```
 
-Só isso. O painel abre sozinho no navegador, e **quatro provedores já sobem sem
-nenhuma chave de API** — Claude Code e ChatGPT Codex pela assinatura que você já
-paga, mais os gratuitos. Sem `pipx`? `pip install` funciona igual.
+Só isso. O painel abre sozinho no navegador. Claude Code e ChatGPT Codex entram
+quando suas sessões de CLI já estão autenticadas; provedores por API só entram
+com credencial, e serviços anônimos exigem ativação explícita. Sem `pipx`?
+`pip install` funciona igual.
 
 Depois, na aba **Conectar**, o painel entrega a configuração pronta para colar
 no Claude Code, Codex, Cline, OpenCode, SDK da OpenAI ou curl.
 
-**41 provedores prontos no catálogo** — 13 com free tier, 4 locais, 2 por
-assinatura e o resto por chave. Nenhum entra sozinho: ligar é pôr o nome no
-`chain_order`.
+**41 provedores prontos no catálogo**: 13 com free tier, 4 locais, 2 por
+assinatura e o resto por chave. Estar no catálogo não é estar na sua cadeia:
+sem credencial ou uma escolha explícita, o provedor fica de fora.
 
 **[Ver a página do projeto →](https://ryanleoncoder.github.io/RobinBandit/)**
 
@@ -51,7 +52,7 @@ O projeto nasceu no [CX-GAME](https://github.com/Ryanleoncoder/CX-GAME), como ro
 
 **Usar** · [Uso](#uso) · [Configuração YAML](#configuração-yaml) ·
 [Credenciais](#credenciais-e-secrets) · [Painel](#painel) ·
-[Dois protocolos](#dois-protocolos-um-router) · [CLI](#cli)
+[Três protocolos](#três-protocolos-um-router) · [CLI](#cli)
 
 **Sem chave de API** · [ChatGPT Codex](#chatgpt-codex-oauth) ·
 [Claude Code](#claude-code-assinatura)
@@ -70,7 +71,7 @@ E dia ruim não é hipótese:
 
 ![Últimos 30 dias por provedor: gemini com 98,46% e dois dias ruins por 429, claude_code com 97,3% e um dia de 529 overloaded, cerebras e groq sem nenhum dia ruim](docs/imagens/dia-ruim.png)
 
-Nenhum desses provedores está quebrado — os quatro passam de 97%. O ponto é que
+Nenhum desses provedores está quebrado. Os quatro passam de 97%. O ponto é que
 a falha não é distribuída por igual: ela se concentra em dias, com motivo
 (`429 rate limit`, `529 overloaded`), e num deles o `gemini` era a pior escolha
 possível enquanto o `groq` ia a 100%. Uma ordem fixa não tem como saber disso.
@@ -82,7 +83,7 @@ O objetivo é evitar insistir em provedores que já estão mostrando sinais de d
 ## Como decide
 
 A captura acima é essa decisão acontecendo. `groq` tem 140 chamadas boas e 6
-erros, `claude_code` tem 58 e 1 — os dois estão **em espera**, e a coluna
+erros, `claude_code` tem 58 e 1. Os dois estão **em espera**, e a coluna
 *por quê* diz por quanto tempo ainda (265.8s e 27.8s). Quem assumiu o primeiro
 lugar foi `cerebras`, com 31 chamadas, 0 erros e 324ms.
 
@@ -285,6 +286,13 @@ No perfil Sentury, `router`, `reforçado` e `dedicado` são aliases desses três
 comportamentos. Na API universal, os nomes canônicos são `router`, `hybrid` e
 `strict`; `auto` é aceito somente como alias legado de `router`.
 
+Clientes HTTP genéricos podem pedir a fila Reforçado configurada no painel com
+`X-RobinBandit-Mode: reinforced`. A fila aceita várias contas em ordem e pode
+misturar assinaturas, créditos e contas gratuitas. Se todas falharem, o Router
+continua pela cadeia normal. Dedicado fica intencionalmente específico do
+Sentury. A decisão e os limites estão em
+**[docs/selecao-por-chamada.md](docs/selecao-por-chamada.md)**.
+
 ## Configuração YAML
 
 Instale `robinbandit[yaml,providers]` e carregue uma fachada configurada:
@@ -311,10 +319,10 @@ OpenRouter, Anthropic e qualquer endpoint OpenAI-compatible declarado. O
 Robin não importa nenhum tipo do agente consumidor.
 
 Contas extras também podem ficar em `accounts.items`, sempre usando `key_env`
-em vez do valor da chave. `accounts.tiers` escolhe qual conta atende uma seleção
-especial. No perfil Sentury, `selection_tier: ultra` e `ultra_max` fornecem os
-defaults de Reforçado e Dedicado; uma escolha gravada pelo painel é uma camada
-mutável por cima do YAML e passa a valer na chamada seguinte.
+em vez do valor da chave. No painel, Reforçado é uma lista ordenada de contas
+tentadas antes da rota normal. `accounts.tiers` preserva os alvos legados do
+Sentury; uma escolha gravada pelo painel é uma camada mutável por cima do YAML
+e passa a valer na chamada seguinte.
 
 ### Credenciais e secrets
 
@@ -381,14 +389,14 @@ Cada chamada roda com `--allowed-tools ""`: aqui o Claude Code é provedor de
 modelo, e o loop de ferramentas continua sendo do agente hospedeiro. Dois loops
 no mesmo turno disputariam a mesma execução.
 
-O que isso destrava é o trabalho pesado — contexto de 1M, raciocínio longo —
-sem chave de API e sem cota por token, pela assinatura que você já paga.
+O que isso destrava é o trabalho pesado, como contexto de 1M e raciocínio
+longo, sem chave de API e sem cota por token, pela assinatura que você já paga.
 
 ![Janelas de assinatura: chatgpt_codex e claude_code com o tempo restante do bloco de 5h](docs/imagens/painel-janelas.png)
 
 <p align="center"><sub>Assinatura não fica lenta quando o uso acaba: ela para, e volta numa hora que dá para saber.</sub></p>
 
-Assinatura não tem cota por token para consultar — tem bloco. A aba *Janelas*
+Assinatura não tem cota por token para consultar; tem bloco. A aba *Janelas*
 mostra quanto falta para o bloco de cada uma virar, quantas chamadas já foram
 nele e quantas vezes ele parou por limite. É o suficiente para decidir entre
 esperar e trocar de provedor. Repare que não existe campo de chave em nenhum
@@ -433,28 +441,32 @@ robinbandit serve          # sobe o endpoint
 ```
 
 Uma página, servida pelo próprio pacote. Mostra a ordem de agora e **por que**
-ela está assim — qualidade, taxa de sucesso, latência e o motivo de quem está
+ela está assim: qualidade, taxa de sucesso, latência e o motivo de quem está
 em espera. Não calcula nada: tudo vem do router, porque um painel que faz a
 própria conta mostra uma coisa enquanto o roteador decide por outra.
 
 São sete abas. O que cada uma resolve:
 
-### Provedores — o que `tier` significa
+### Provedores: escolha a política da fila
 
 ![Provedores por tier, com a escolha entre deixar o bandit aprender e fazer o tier mandar](docs/imagens/painel-provedores.png)
 
-Tier é um grupo, e vários provedores cabem no mesmo. O que muda é o peso que
-ele tem na hora de decidir, e isso é uma escolha de duas:
+Tier é um grupo, e vários provedores cabem no mesmo. A tela oferece quatro
+políticas de roteamento:
 
-* **Deixar ele aprender** (`strategy: adaptive`) — o tier é um bônus. Um
+* **Deixar ele aprender** (`strategy: adaptive`): o tier é um bônus. Um
   provedor do tier 2 que vem respondendo melhor passa na frente do tier 1.
-* **Meu tier manda** (`strategy: tier`) — o tier é barreira. O tier 2 só é
+* **Meu tier manda** (`strategy: tier`): o tier é barreira. O tier 2 só é
   tentado quando o tier 1 inteiro falhou: *"vá nestes primeiro, mesmo que
   falhem; só depois gaste meus créditos"*.
+* **Lista fixa** (`strategy: fixed`) respeita a ordem editável da cadeia e só
+  passa ao próximo depois de indisponibilidade ou falha.
+* **Rodízio** (`strategy: round_robin`) alterna a primeira tentativa depois de
+  cada chamada real. Abrir o painel não move o cursor.
 
 Arrastar muda de grupo; o botão tira e devolve à cadeia.
 
-### Modelos — a lista de cada provedor
+### Modelos: a lista de cada provedor
 
 ![Modelos de cada provedor, em ordem, com o botão de perguntar ao provedor o que ele tem hoje](docs/imagens/painel-modelos.png)
 
@@ -462,36 +474,39 @@ Escolhido o provedor, ele tenta os modelos desta lista de cima para baixo e
 para no primeiro que responder. `GET /modelos/{provedor}` pergunta ao provedor
 o que ele tem hoje, em vez de confiar numa lista escrita meses atrás.
 
-### Credenciais — a chave não volta na resposta
+### Credenciais: a chave não volta na resposta
 
-![Contas e credenciais: chaves no cofre, contas por provedor e quem atende Reforçado e Dedicado](docs/imagens/painel-credenciais.png)
+![Contas e credenciais: chaves no cofre, contas por provedor e seleção por chamada](docs/imagens/painel-credenciais.png)
 
 A chave colada aqui vai para o cofre da máquina com permissão `0600` e **nunca
-volta em nenhum payload** — nem o começo, nem o fim. Um provedor pode ter mais
-de uma conta, e o rotador alterna entre elas quando uma bate a cota. As duas
-caixas do topo escolhem qual conta atende `Reforçado` e `Dedicado`.
+volta em nenhum payload**, nem o começo, nem o fim. Um provedor pode ter mais
+de uma conta, e o rotador alterna entre elas quando uma bate a cota. Reforçado
+aceita várias contas em ordem, pagas ou gratuitas, antes de voltar à rota
+normal. Dedicado fica na interface do Sentury, onde fixa um provedor e uma LLM
+sem fallback. A separação está em
+[seleção por chamada](docs/selecao-por-chamada.md).
 
 *Trazer para o cofre* copia o que hoje só existe no ambiente; o `.env` de
 origem não é tocado.
 
-### Uso — tokens, não reais
+### Uso e custo
 
 ![Tokens gastos: total de 30 dias, chamadas e um calendário de um quadrado por dia](docs/imagens/painel-uso.png)
 
-Cada provedor já informa quanto custou a resposta, e esse número era usado para
-decidir dentro do turno e descartado em seguida. Aqui ele fica: um quadrado por
-dia, mais escuro nos dias de maior gasto.
+O painel separa tokens de entrada, saída e cache, mostra chamadas e mantém um
+calendário de 365 dias. Custo em USD aparece quando o próprio provedor o inclui
+na resposta. Sem preço informado, a tela diz isso em vez de mostrar `$0.00`.
 
-Em tokens, e não em reais, de propósito — preço muda por modelo, por região e
+Em tokens, e não em reais, de propósito. Preço muda por modelo, por região e
 por promoção, e um custo calculado com tabela velha dá a confiança de um número
 exato sobre um palpite desatualizado.
 
-### Conectar — plugar uma ferramenta
+### Conectar: plugar uma ferramenta
 
 ![A aba Conectar, com a configuração pronta para Claude Code, Codex, Cline, OpenCode, SDK e curl](docs/imagens/painel-conectar.png)
 
 `GET /cli-tools` devolve a configuração pronta para cada cliente apontar para
-cá — Claude Code, Codex, Cline, OpenCode, SDK e curl. Nada é escrito no disco:
+cá: Claude Code, Codex, Cline, OpenCode, SDK e curl. Nada é escrito no disco:
 quem decide alterar a própria configuração é você.
 
 O campo `model` vira o **contexto** do bandit, não o nome de um modelo:
@@ -542,23 +557,27 @@ Desde a versão 0.2, o dump possui mapas `health` e `quality` separados. O
 `health`; a qualidade antiga era misturada e não pode ser reconstruída com
 honestidade.
 
-## Dois protocolos, um router
+## Três protocolos, um router
 
-O extra `server` expõe o router por duas APIs, porque as ferramentas não falam
+O extra `server` expõe o router por três APIs, porque as ferramentas não falam
 a mesma língua:
 
 | rota | protocolo | quem fala |
 |---|---|---|
-| `POST /v1/chat/completions` | OpenAI | Codex, Cline, OpenCode, SDK da OpenAI, curl |
+| `POST /v1/chat/completions` | OpenAI Chat Completions | Cline, OpenCode, SDK da OpenAI, curl |
+| `POST /v1/responses` | OpenAI Responses | Codex CLI |
 | `POST /v1/messages` | Anthropic | Claude Code |
 
-O Claude Code **não** fala o formato da OpenAI: ele chama `/v1/messages`, com
-`system` em campo separado e `content` em blocos. As duas rotas caem no mesmo
-`ChainProvider` e no mesmo bandit — muda só a tradução na entrada e na saída.
+O Claude Code chama `/v1/messages`, com `system` em campo separado e `content`
+em blocos. O Codex CLI atual chama `/v1/responses`, com itens, ferramentas e
+eventos SSE próprios. As três rotas caem no mesmo `ChainProvider` e no mesmo
+bandit; muda a tradução na entrada e na saída.
 
-`/v1/messages` aceita `stream: true` e responde em SSE, mas o texto sai inteiro
-num evento só: o `complete()` do Robin devolve a resposta pronta, e fingir
-token a token seria teatro. `/v1/chat/completions` recusa streaming com `400`.
+`/v1/messages` e `/v1/responses` aceitam `stream: true` e respondem na sequência
+SSE de cada protocolo. O texto sai inteiro em um delta porque o `complete()` do
+Robin devolve a resposta pronta. `/v1/responses` também traduz chamadas de
+ferramenta normais e customizadas. `/v1/chat/completions` recusa streaming com
+`400`.
 
 ### Endpoint OpenAI-compatible
 
@@ -657,8 +676,8 @@ O servidor não implementa:
 é escutar em `127.0.0.1`, não uma senha. Numa VPS, mantenha em localhost e
 alcance o painel por túnel ssh (`ssh -L 8000:localhost:8000 usuario@host`).
 
-Streaming token a token também não existe: `/v1/messages` embala a resposta
-pronta em SSE para os clientes que só sabem ler esse formato, e
+Streaming token a token também não existe: `/v1/messages` e `/v1/responses`
+embalam a resposta pronta nos eventos de seus protocolos, e
 `/v1/chat/completions` recusa `stream: true` com `400`.
 
 O campo `usage` é omitido quando o provider não fornece essa informação.
@@ -677,8 +696,8 @@ robinbandit state estado.json          # o que o router aprendeu
 robinbandit language en                # em que língua ele responde
 ```
 
-`serve` detecta se há tela: numa máquina sem sessão gráfica — servidor,
-container, ssh — ele não tenta abrir navegador, e `--no-browser` força isso em
+`serve` detecta se há tela. Numa máquina sem sessão gráfica, como servidor,
+container ou ssh, ele não tenta abrir navegador. `--no-browser` força isso em
 qualquer lugar.
 
 `key add` aceita `-` no lugar do valor para ler da entrada padrão, o que
@@ -748,7 +767,7 @@ da resposta.
 |---|---|---|
 | Bege | `#EFE3D2` | a letra, o texto sobre fundo escuro |
 | Verde | `#5E7A61` | as barras de velocidade, o "BANDIT" |
-| Âmbar | `#E0AF43` | o olho — o único ponto de destaque |
+| Âmbar | `#E0AF43` | o olho, o único ponto de destaque |
 | Preto | `#000000` | o fundo |
 
 O logo em `assets/robinbandit_logo1.png` existe em versão para fundo escuro e
@@ -757,4 +776,4 @@ procura primeiro.
 
 ## Licença
 
-MIT — veja [LICENSE](LICENSE).
+MIT. Veja [LICENSE](LICENSE).

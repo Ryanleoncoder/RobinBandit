@@ -22,17 +22,17 @@ pipx install "robinbandit[server,yaml,providers]"
 robinbandit serve
 ```
 
-That's it. The panel opens in your browser on its own, and **four providers come
-up with no API key at all** — Claude Code and ChatGPT Codex through the
-subscription you already pay for, plus the free ones. No `pipx`? `pip install`
-works the same.
+That's it. The panel opens in your browser on its own. Claude Code and ChatGPT
+Codex join when their CLI sessions are already authenticated; API providers
+require credentials, and anonymous services require explicit opt-in. No
+`pipx`? `pip install` works the same.
 
 Then, in the **Connect** tab, the panel hands you ready-made configuration to
 paste into Claude Code, Codex, Cline, OpenCode, the OpenAI SDK or curl.
 
-**41 providers in the catalog** — 13 with a free tier, 4 local, 2 by
-subscription, the rest by key. None of them opts in by itself: turning one on
-means putting its name in `chain_order`.
+**41 providers in the catalog**: 13 with a free tier, 4 local, 2 by
+subscription, the rest by key. Being in the catalog is not the same as being
+in your chain: without credentials or an explicit choice, a provider stays out.
 
 **[See the project page →](https://ryanleoncoder.github.io/RobinBandit/)**
 
@@ -55,7 +55,7 @@ as Logun's provider router, and was later split into a package of its own.
 
 **Use** · [Usage](#usage) · [YAML configuration](#yaml-configuration) ·
 [Credentials](#credentials-and-secrets) · [Panel](#panel) ·
-[Two protocols](#two-protocols-one-router) · [CLI](#cli)
+[Three protocols](#three-protocols-one-router) · [CLI](#cli)
 
 **No API key** · [ChatGPT Codex](#chatgpt-codex-oauth) ·
 [Claude Code](#claude-code-subscription)
@@ -75,7 +75,7 @@ And a bad day is not hypothetical:
 
 ![Thirty days per provider: gemini at 98.46% with two bad days from 429s, claude_code at 97.3% with one 529 overloaded day, cerebras and groq with none](docs/imagens/dia-ruim.png)
 
-None of these providers is broken — all four clear 97%. The point is that
+None of these providers is broken. All four clear 97%. The point is that
 failure is not spread evenly: it clumps into days, with a reason attached
 (`429 rate limit`, `529 overloaded`), and on one of them `gemini` was the worst
 possible pick while `groq` ran at 100%. A fixed order has no way to know that.
@@ -88,7 +88,7 @@ degradation and, among those available, to favor the ones answering better.
 ## How it decides
 
 The screenshot above is that decision happening. `groq` has 140 good calls and 6
-errors, `claude_code` has 58 and 1 — both are **waiting**, and the *why* column
+errors, `claude_code` has 58 and 1. Both are **waiting**, and the *why* column
 says for how much longer (265.8s and 27.8s). `cerebras` took first place, with
 31 calls, 0 errors and 324ms.
 
@@ -307,6 +307,12 @@ In the Sentury profile, `router`, `reforçado` and `dedicado` are aliases for
 those three behaviors. In the universal API the canonical names are `router`,
 `hybrid` and `strict`; `auto` is accepted only as a legacy alias for `router`.
 
+Generic HTTP clients can request the Reinforced queue configured in the panel
+with `X-RobinBandit-Mode: reinforced`. The queue accepts multiple ordered
+accounts and can mix subscriptions, credits, free accounts, and CLI sessions.
+If every preferred account fails, the Router continues through its normal
+chain. Dedicated remains intentionally owned by the Sentury interface.
+
 ## YAML configuration
 
 Install `robinbandit[yaml,providers]` and load a configured facade:
@@ -333,10 +339,10 @@ Gemini, OpenRouter, Anthropic and any declared OpenAI-compatible endpoint.
 imports no type from the consuming agent.
 
 Extra accounts can also live under `accounts.items`, always using `key_env`
-instead of the key value. `accounts.tiers` picks which account serves a special
-selection. In the Sentury profile, `selection_tier: ultra` and `ultra_max`
-provide the defaults for Reinforced and Dedicated; a choice saved from the panel
-is a mutable layer on top of the YAML and takes effect on the next call.
+instead of the key value. Reinforced is an ordered list of accounts tried before
+the normal route. `accounts.tiers` preserves Sentury's legacy defaults; a choice
+saved from the panel is a mutable layer on top of the YAML and takes effect on
+the next call.
 
 ### Credentials and secrets
 
@@ -406,14 +412,14 @@ Each call runs with `--allowed-tools ""`: here Claude Code is a model provider,
 and the tool loop stays with the host agent. Two loops in the same turn would
 fight over the same execution.
 
-What this unlocks is the heavy work — 1M context, long reasoning — with no API
-key and no per-token quota, through the subscription you already pay for.
+What this unlocks is the heavy work, including 1M context and long reasoning,
+with no API key and no per-token quota, through the subscription you already pay for.
 
 ![Subscription windows: chatgpt_codex and claude_code with the time left in their 5-hour block](docs/imagens/painel-janelas.png)
 
 <p align="center"><sub>A subscription does not get slow when usage runs out: it stops, and comes back at a knowable time.</sub></p>
 
-A subscription has no per-token quota to query — it has a block. The *Windows*
+A subscription has no per-token quota to query; it has a block. The *Windows*
 tab shows how long until each block turns over, how many calls went into it, and
 how many times it stopped at the limit. That is enough to decide between waiting
 and switching providers. Note that there is no key field on either card.
@@ -459,30 +465,34 @@ robinbandit serve          # brings up the endpoint
 ```
 
 One page, served by the package itself. It shows the order right now and **why**
-it looks that way — quality, success rate, latency and the reason whoever is
+it looks that way: quality, success rate, latency and the reason whoever is
 waiting is waiting. It computes nothing: everything comes from the router,
 because a panel that does its own math shows one thing while the router decides
 another.
 
 There are seven tabs. What each one solves:
 
-### Providers — what `tier` means
+### Providers: choose the queue policy
 
 ![Providers grouped by tier, with a choice between letting the bandit learn and letting the tier decide](docs/imagens/painel-provedores.png)
 
-A tier is a group, and several providers fit in the same one. What changes is
-the weight it carries at decision time, and that is a choice between two:
+A tier is a group, and several providers fit in the same one. The panel offers
+four routing policies:
 
-* **Let it learn** (`strategy: adaptive`) — the tier is a bonus. A tier 2
+* **Let it learn** (`strategy: adaptive`): the tier is a bonus. A tier 2
   provider that has been answering better goes ahead of tier 1.
-* **My tier rules** (`strategy: tier`) — the tier is a barrier. Tier 2 is only
+* **My tier rules** (`strategy: tier`): the tier is a barrier. Tier 2 is only
   tried once all of tier 1 has failed: *"try these first even if they fail; only
   then spend my credits"*.
+* **Fixed list** (`strategy: fixed`) follows the editable chain order and moves
+  on only after unavailability or failure.
+* **Round robin** (`strategy: round_robin`) rotates the first attempt after each
+  real call. Opening the panel does not move the cursor.
 
 Dragging changes the group; the button removes a provider from the chain and
 puts it back.
 
-### Models — each provider's list
+### Models: each provider's list
 
 ![Each provider's model list, in order, with a button to ask the provider what it has today](docs/imagens/painel-modelos.png)
 
@@ -490,40 +500,39 @@ Once a provider is picked, it tries the models on this list top-down and stops a
 the first one that answers. `GET /modelos/{provider}` asks the provider what it
 has today, instead of trusting a list written months ago.
 
-### Credentials — the key never comes back
+### Credentials: the key never comes back
 
-![Accounts and credentials: keys in the vault, accounts per provider, and who serves Reinforced and Dedicated](docs/imagens/painel-credenciais.png)
+![Accounts and credentials: keys in the vault, accounts per provider, and per-call selection](docs/imagens/painel-credenciais.png)
 
 A key pasted here goes into the machine's vault with `0600` permissions and
-**never comes back in any payload** — not the start of it, not the end. A
+**never comes back in any payload**, not the start of it, not the end. A
 provider can have more than one account, and the rotator alternates between them
-when one hits its quota. The two boxes at the top pick which account serves
-`Reinforced` and `Dedicated`.
+when one hits its quota. Reinforced accepts several paid or free accounts in a
+chosen order before returning to the normal route. Dedicated stays in the
+Sentury interface, where it pins one provider and one model without fallback.
+Low-level `strict` selection remains available to Python integrations.
 
 *Bring into the vault* copies what today only exists in the environment; the
 source `.env` is not touched.
 
-### Usage — tokens, not currency
+### Usage and cost
 
 ![Tokens spent: a 30-day total, call count, and a one-square-per-day calendar](docs/imagens/painel-uso.png)
 
-Every provider already reports what a response cost, and that number used to be
-read within the turn and thrown away. Here it stays: one square per day, darker
-on the days you spent more.
+The panel separates input, output and cached tokens, shows calls, and keeps a
+365-day calendar. USD cost appears when the provider includes it in the
+response. When price is not reported, the panel says so instead of showing
+`$0.00`.
 
-In tokens, not currency, on purpose — prices change by model, by region and by
-promotion, and a cost computed from a stale table lends the confidence of an
-exact number to an out-of-date guess.
-
-### Connect — plugging in a tool
+### Connect: plugging in a tool
 
 ![The Connect tab, with ready-made configuration for Claude Code, Codex, Cline, OpenCode, the SDK and curl](docs/imagens/painel-conectar.png)
 
-`GET /cli-tools` returns ready-made configuration for each client to point here
-— Claude Code, Codex, Cline, OpenCode, the SDK and curl. Nothing is written to
+`GET /cli-tools` returns ready-made configuration for every supported client:
+Claude Code, Codex, Cline, OpenCode, the SDK and curl. Nothing is written to
 disk: changing your own configuration is your call.
 
-Once a tool has called through, the tab says so — how many calls, how long ago,
+Once a tool has called through, the tab says so: how many calls, how long ago,
 and which contexts it used. Copying configuration and having no way to tell
 whether it landed left that check to the first error inside the agent, which is
 the worst place to find out.
@@ -577,25 +586,27 @@ Since version 0.2, the dump has separate `health` and `quality` maps. `load()`
 accepts the old 0.1 format with `cells`, migrating those cells into `health`;
 the old quality was mixed together and cannot be reconstructed honestly.
 
-## Two protocols, one router
+## Three protocols, one router
 
-The `server` extra exposes the router through two APIs, because the tools do not
+The `server` extra exposes the router through three APIs, because the tools do not
 speak the same language:
 
 | route | protocol | who speaks it |
 |---|---|---|
-| `POST /v1/chat/completions` | OpenAI | Codex, Cline, OpenCode, the OpenAI SDK, curl |
+| `POST /v1/chat/completions` | OpenAI Chat Completions | Cline, OpenCode, the OpenAI SDK, curl |
+| `POST /v1/responses` | OpenAI Responses | Codex CLI |
 | `POST /v1/messages` | Anthropic | Claude Code |
 
-Claude Code does **not** speak the OpenAI format: it calls `/v1/messages`, with
-`system` as a separate field and `content` in blocks. Both routes land on the
-same `ChainProvider` and the same bandit — only the translation in and out
-differs.
+Claude Code calls `/v1/messages`, with `system` as a separate field and
+`content` in blocks. Current Codex CLI calls `/v1/responses`, with its own items,
+tools and SSE events. All three routes land on the same `ChainProvider` and the
+same bandit; only the translation in and out differs.
 
-`/v1/messages` accepts `stream: true` and answers in SSE, but the text comes out
-whole in a single event: Robin's `complete()` returns the finished response, and
-faking it token by token would be theater. `/v1/chat/completions` refuses
-streaming with `400`.
+`/v1/messages` and `/v1/responses` accept `stream: true` and answer with each
+protocol's SSE sequence. Text comes out whole in one delta because Robin's
+`complete()` returns the finished response. `/v1/responses` also translates
+regular and custom tool calls. `/v1/chat/completions` refuses streaming with
+`400`.
 
 ### OpenAI-compatible endpoint
 
@@ -696,8 +707,8 @@ listening on `127.0.0.1`, not a password. On a VPS, keep it on localhost and
 reach the panel through an ssh tunnel
 (`ssh -L 8000:localhost:8000 user@host`).
 
-Token-by-token streaming does not exist either: `/v1/messages` packs the
-finished response into SSE for clients that only know that format, and
+Token-by-token streaming does not exist either: `/v1/messages` and
+`/v1/responses` pack the finished response into their protocol events, and
 `/v1/chat/completions` refuses `stream: true` with `400`.
 
 The `usage` field is omitted when the provider does not supply that information.
@@ -717,7 +728,7 @@ robinbandit language pt                # which language it answers in
 ```
 
 `serve` detects whether there is a screen: on a machine with no graphical
-session — a server, a container, ssh — it does not try to open a browser, and
+session, such as a server, a container or ssh, it does not open a browser, and
 `--no-browser` forces that anywhere.
 
 `key add` takes `-` instead of the value to read from standard input, which
@@ -787,7 +798,7 @@ rewards by the response id.
 |---|---|---|
 | Beige | `#EFE3D2` | the letter, and text on a dark background |
 | Green | `#5E7A61` | the speed bars, the "BANDIT" |
-| Amber | `#E0AF43` | the eye — the single point of emphasis |
+| Amber | `#E0AF43` | the eye, the single point of emphasis |
 | Black | `#000000` | the background |
 
 The logo in `assets/robinbandit_logo1.png` comes in a version for dark
@@ -796,4 +807,4 @@ what the eye looks for first.
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE).

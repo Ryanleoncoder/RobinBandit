@@ -111,10 +111,20 @@ def test_ferramentas_de_cli_apontam_para_este_servidor():
         assert "testserver" in ferramenta["conteudo"], ferramenta["id"]
 
 
-def test_config_do_codex_e_toml_valido():
+def test_config_do_codex_usa_a_responses_api():
     config = cli_tools.uma("codex", "http://localhost:9999")
     assert config["arquivo"] == "~/.codex/config.toml"
     assert 'base_url = "http://localhost:9999/v1"' in config["conteudo"]
+    assert 'wire_api = "responses"' in config["conteudo"]
+    assert 'requires_openai_auth = false' in config["conteudo"]
+
+
+def test_ferramenta_da_tela_conectar_pode_vir_da_url():
+    from robinbandit.painel import pasta_do_painel
+
+    js = (pasta_do_painel() / "painel.js").read_text(encoding="utf-8")
+    assert "get('ferramenta')" in js
+    assert "set('ferramenta', f.id)" in js
 
 
 def test_config_do_cline_e_json_valido():
@@ -148,9 +158,11 @@ def test_estrategia_diz_o_que_cada_uma_faz():
     """"adaptive" e "tier" nao explicam nada sozinhas. Quem escolhe precisa
     saber que uma deixa o aprendizado passar por cima do tier e a outra nao."""
     dados = _cliente().get("/config").json()
-    assert set(dados["estrategias"]) == {"adaptive", "tier"}
-    assert "bônus" in dados["estrategias"]["adaptive"]
-    assert "barreira" in dados["estrategias"]["tier"]
+    assert set(dados["estrategias"]) == {"adaptive", "tier", "fixed", "round_robin"}
+    assert "qualidade" in dados["estrategias"]["adaptive"]
+    assert "tier 1" in dados["estrategias"]["tier"]
+    assert "ordem exata" in dados["estrategias"]["fixed"]
+    assert "Alterna" in dados["estrategias"]["round_robin"]
 
 
 def test_trocar_estrategia_vale_sem_reiniciar():
@@ -163,6 +175,42 @@ def test_trocar_estrategia_vale_sem_reiniciar():
 
 def test_estrategia_invalida_e_recusada():
     resposta = _cliente().put("/config/estrategia", json={"valor": "chute"})
+    assert resposta.status_code == 400
+
+
+def test_painel_nao_duplica_o_dedicado_da_interface_do_sentury():
+    from robinbandit import RobinConfig
+
+    config = RobinConfig.from_mapping({
+        "agent_mode": "sentury",
+        "providers": {
+            "openrouter": {
+                "modelo_do_tier": {"ultra": "rapido", "ultra_max": "forte"}
+            }
+        },
+    })
+    cliente = TestClient(create_app([_Fake("openrouter")], ProviderRouter(), config=config))
+    contas = cliente.get("/contas").json()
+    assert contas["agent_mode"] == "sentury"
+    assert contas["alvos"] == {"ultra": "Reforçado"}
+
+
+def test_reforcado_aceita_varias_contas_em_ordem(monkeypatch, tmp_path):
+    monkeypatch.setenv("ROBINBANDIT_ACCOUNTS_PATH", str(tmp_path / "contas.json"))
+    cliente = _cliente()
+    ordem = ["claude_code", "chatgpt_codex", "openrouter-paga"]
+
+    resposta = cliente.put("/contas/reforcado", json={"contas": ordem})
+    assert resposta.status_code == 200
+    assert resposta.json()["contas"] == ordem
+    assert cliente.get("/contas").json()["reforcado"] == ordem
+
+
+def test_reforcado_recusa_conta_que_nao_existe(monkeypatch, tmp_path):
+    monkeypatch.setenv("ROBINBANDIT_ACCOUNTS_PATH", str(tmp_path / "contas.json"))
+    resposta = _cliente().put(
+        "/contas/reforcado", json={"contas": ["conta-inventada"]},
+    )
     assert resposta.status_code == 400
 
 
@@ -210,6 +258,34 @@ def test_catalogo_mostra_quem_esta_dentro_e_quem_esta_fora():
     nomes = {p["nome"] for p in dados["provedores"]}
     assert set(dados["cadeia"]) <= nomes
     assert any(p["na_cadeia"] for p in dados["provedores"])
+
+
+def test_tela_de_provedores_separa_cadeia_do_catalogo():
+    """O catálogo inteiro não pode parecer a lista de serviços da pessoa."""
+    from robinbandit.painel import pasta_do_painel
+
+    pasta = pasta_do_painel()
+    html = (pasta / "pagina.html").read_text(encoding="utf-8")
+    js = (pasta / "painel.js").read_text(encoding="utf-8")
+
+    assert 'id="filtro-provedores"' in html
+    assert "provedoresDeTodos || p.na_cadeia" in js
+    assert "porTier[n] && porTier[n].length" in js
+
+
+def test_rotas_normal_e_reforcada_ficam_em_provedores():
+    from robinbandit.painel import pasta_do_painel
+
+    pasta = pasta_do_painel()
+    js = (pasta / "painel.js").read_text(encoding="utf-8")
+    html = (pasta / "pagina.html").read_text(encoding="utf-8")
+
+    provedores = html.index('id="tela-provedores"')
+    credenciais = html.index('id="tela-credenciais"')
+    reservado = html.index('id="reservados"')
+    assert provedores < reservado < credenciais
+    assert "X-RobinBandit-Mode: normal" in html
+    assert "cred.ref_desc" in js
 
 
 def test_conta_nao_e_provedor():
@@ -425,6 +501,19 @@ def test_os_blocos_que_o_js_esconde_existem_no_html():
 
     for alvo in ids:
         assert f'id="{alvo}"' in html, f"o JS esconde #{alvo}, que nao existe no HTML"
+
+
+def test_hidden_nao_e_sobrescrito_pelo_display_dos_componentes():
+    """`.placar { display:grid }` vencia o `[hidden]` nativo do navegador e
+    deixava visiveis os blocos que o estado inicial dizia ter escondido."""
+    import re
+
+    from robinbandit.painel import pasta_do_painel
+
+    css = (pasta_do_painel() / "estilo.css").read_text(encoding="utf-8")
+    regra = re.search(r"\[hidden\]\s*\{([^}]*)\}", css)
+    assert regra, "o painel usa hidden no JS, mas nao o protege no CSS"
+    assert re.search(r"display\s*:\s*none\s*!important", regra.group(1))
 
 
 def test_cada_bloco_escondido_tem_o_titulo_como_irmao_anterior():

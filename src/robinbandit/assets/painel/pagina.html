@@ -29,9 +29,7 @@
     <section id="tela-agora">
       <div class="cabeca">
         <h1 data-t="agora.titulo">O que está acontecendo</h1>
-        <p data-t="agora.intro">A fila de agora e o motivo dela. Quem decide é o bandit: qualidade e saúde
-           são posteriores Beta, e o sorteio é o que o faz continuar explorando em vez
-           de travar no primeiro que deu certo.</p>
+        <p data-t="agora.intro">Veja a saúde de quem está disponível, qual modo está ativo e por que a fila ficou nesta ordem.</p>
       </div>
       <div id="inicio"></div>
       <div class="placar" id="placar"></div>
@@ -45,17 +43,21 @@
 
     <section id="tela-provedores" class="oculto">
       <div class="cabeca">
-        <h1 data-t="prov.titulo">Provedores por tier</h1>
-        <p data-t="prov.intro">Tier é um grupo, e vários provedores cabem no mesmo. Arraste para mudar
-           de grupo; o botão tira e devolve à cadeia. O que o tier significa na
-           hora de decidir depende da escolha abaixo.</p>
+        <h1 data-t="prov.titulo">Provedores e rota</h1>
+        <p data-t="prov.intro">Escolha a política da fila. Os provedores disponíveis continuam
+           protegidos por saúde e cooldown em todos os modos.</p>
       </div>
-      <h2><span data-t="prov.como_decidir">Como decidir</span> <span class="risco"></span></h2>
+      <h2><span data-t="prov.como_decidir">Rota normal</span> <span class="risco"></span></h2>
       <div class="escolhas" id="estrategia"></div>
+      <p class="como"><span data-t="prov.normal_header">Esta é a rota padrão, usada sem header ou com</span>
+         <code>X-RobinBandit-Mode: normal</code>.</p>
+      <div class="ordem-cadeia" id="ordem-cadeia"></div>
+      <div class="abas" id="filtro-provedores"></div>
       <div id="tiers"></div>
-      <p class="como" data-t="prov.ultimo">Se todos falharem, ninguém assume o lugar deles: o RobinBandit
+      <p class="como" id="nota-fallback" data-t="prov.ultimo">Se todos falharem, ninguém assume o lugar deles: o RobinBandit
          devolve um aviso dizendo que nenhum provedor respondeu. Isso não é um
          provedor de reserva, e por isso não aparece em nenhum tier.</p>
+      <div id="reservados"></div>
       <p class="recado" id="recado-prov"></p>
     </section>
 
@@ -75,7 +77,7 @@
       <div class="cabeca">
         <h1 data-t="cred.titulo">Contas e credenciais</h1>
         <p data-t="cred.intro">A chave que você colar aqui vai para o cofre desta máquina, com permissão
-           0600, e nunca volta na resposta — nem o começo, nem o fim. Um provedor pode
+           0600. Ela nunca volta na resposta, nem mesmo parcialmente. Um provedor pode
            ter mais de uma conta, e o rotador alterna entre elas quando uma bate a cota.</p>
       </div>
       <p class="recado" id="recado-cred"></p>
@@ -89,12 +91,11 @@
         <button type="button" class="acao" id="btn-importar" data-t="cred.trazer">trazer para o cofre</button>
       </div>
       <div class="abas" id="filtro-cred"></div>
-      <div id="reservados"></div>
       <div id="credenciais" data-t="comum.carregando">carregando…</div>
       <details class="somar-conta">
         <summary data-t="cred.add_conta">Adicionar outra conta</summary>
         <p class="dica" data-t="cred.add_intro">Mesma conta do provedor com outra chave, ou uma segunda conta
-           sua. O nome da variável é escolha sua — é por ele que a chave é guardada.</p>
+           sua. A chave é guardada pelo nome de variável que você escolher.</p>
         <form id="form-conta">
           <select id="conta-prov"></select>
           <input id="conta-id" placeholder="apelido, ex.: groq-2" data-t-ph="cred.apelido" autocomplete="off">
@@ -109,9 +110,8 @@
     <section id="tela-janelas" class="oculto">
       <div class="cabeca">
         <h1 data-t="jan.titulo">Janelas de assinatura</h1>
-        <p data-t="jan.intro">Assinatura não fica lenta quando o uso acaba: ela para, e volta numa hora
-           que dá para saber. Aqui está quanto falta para o bloco de cada uma virar —
-           o suficiente para decidir entre esperar e trocar de provedor.</p>
+        <p data-t="jan.intro">Assinatura não fica lenta quando o uso acaba: ela para e volta numa hora
+           previsível. Veja quanto falta para decidir entre esperar e trocar de provedor.</p>
       </div>
       <div id="janelas" data-t="comum.carregando">carregando…</div>
       <div class="ping" id="ping"></div>
@@ -120,10 +120,8 @@
 
     <section id="tela-uso" class="oculto">
       <div class="cabeca">
-        <h1 data-t="uso.titulo">Tokens gastos</h1>
-        <p data-t="uso.intro">Cada provedor já informa quanto custou a resposta, e esse número era
-           usado para decidir dentro do turno e descartado em seguida. Aqui ele
-           fica: um quadrado por dia, mais escuro nos dias em que você gastou mais.</p>
+        <h1 data-t="uso.titulo">Uso e custo</h1>
+        <p data-t="uso.intro">Acompanhe chamadas, tokens de entrada e saída e o custo informado pelo provedor.</p>
       </div>
       <div class="placar" id="uso-numeros"></div>
       <h2><span data-t="uso.ano">Seu ano</span> <span class="risco"></span></h2>
@@ -132,9 +130,7 @@
         <summary class="dica" style="cursor:pointer;margin-top:26px" data-t="uso.por_provedor">Abrir por provedor</summary>
         <div class="carta" id="uso-provedores" style="margin-top:12px"></div>
       </details>
-      <p class="como" data-t="uso.moeda">Em tokens, não em reais: preço muda por modelo, por região e
-         por promoção, e um custo calculado com tabela velha dá a confiança de um
-         número exato sobre um palpite desatualizado.</p>
+      <p class="como" data-t="uso.moeda">O custo só aparece quando o provedor o informa. Ausência de preço não significa uso grátis.</p>
     </section>
 
     <section id="tela-conectar" class="oculto">
@@ -142,12 +138,15 @@
         <h1 data-t="con.titulo">Plugar uma ferramenta</h1>
         <p><span data-t="con.intro_1">Qualquer ferramenta que deixe trocar o endereço da API passa a rotear
            por aqui. Copie a configuração da sua e cole onde ela indica. No campo</span>
-           <code>model</code> <span data-t="con.intro_2">vai um apelido do seu trabalho — "codigo", "revisao" —
-           e o RobinBandit aprende separado para cada um.</span></p>
+           <code>model</code> <span data-t="con.intro_2">vai um apelido do seu trabalho, como "codigo" ou "revisao".
+           O RobinBandit aprende separado para cada um.</span></p>
       </div>
       <div class="abas" id="abas"></div>
       <p class="arquivo" id="arquivo"></p>
-      <pre id="config-texto">carregando…</pre>
+      <div class="config-bloco">
+        <button type="button" class="acao copiar" id="copiar-config" data-t="con.copiar">Copiar</button>
+        <pre id="config-texto">carregando…</pre>
+      </div>
       <p class="como" id="como"></p>
       <p class="conexao" id="conexao"></p>
     </section>

@@ -417,6 +417,11 @@ class CodexAppServerClient:
 class CodexProvider:
     """Adaptador Robin para modelos da assinatura ChatGPT via Codex CLI."""
 
+    # O app-server executa o turno sem ferramentas próprias. Aceitar o campo
+    # na assinatura serve para compatibilidade, mas não preserva tool calls do
+    # cliente Responses; por isso ele não pode atender esse tipo de pedido.
+    supports_tools = False
+
     def __init__(
         self,
         models: List[str],

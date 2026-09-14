@@ -575,9 +575,11 @@ providers:
     api_key_env: LLM7_API_KEY
     models_env: LLM7_MODELS
     models: [gpt-4o-mini]
-    # Sem chave: o endpoint responde com qualquer token. `chave_opcional`
-    # evita que o diagnóstico peça uma credencial que não existe.
+    # Sem chave: o endpoint responde com qualquer token. Isso nao significa
+    # consentimento para enviar chamadas a um servico que a pessoa nao usa:
+    # ele so monta depois de entrar explicitamente na cadeia.
     chave_opcional: true
+    opt_in: true
     tier: 3
     quality: 0.60
     priority: 37

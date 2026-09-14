@@ -15,38 +15,44 @@ logger = logging.getLogger(__name__)
 _USO_DO_TURNO: contextvars.ContextVar = contextvars.ContextVar("robin_uso_do_turno", default=None)
 
 
-def iniciar_contagem() -> None:
-    _USO_DO_TURNO.set({"entrada": 0, "saida": 0, "total": 0, "cacheado": 0, "chamadas": 0})
+def suporta_ferramentas(provider) -> bool:
+    """Diz se o adaptador preserva chamadas estruturadas de ferramenta.
 
-
-def custo_estimado(modelo, uso, catalogo=None):
-    """Custo em dolares do turno, quando existe preco publicado do modelo.
-
-    Sem preco conhecido devolve None: melhor nao mostrar custo nenhum do que
-    mostrar um numero inventado.
+    Adaptadores internos podem declarar ``supports_tools`` explicitamente.
+    Para integrações de terceiros, a assinatura continua sendo uma forma
+    segura de descoberta: aceitar ``tools`` ou ``**kwargs`` conta como suporte.
     """
-    if not uso or not modelo:
-        return None
-    chave = str(modelo).split(":", 1)[-1]
-    precos = (catalogo or {}).get(chave)
-    if not precos:
-        return None
-    entrada = precos.get("prompt_per_million")
-    saida = precos.get("completion_per_million")
-    if entrada is None and saida is None:
-        return None
-    total = 0.0
-    total += (uso.get("entrada") or 0) / 1_000_000 * float(entrada or 0)
-    total += (uso.get("saida") or 0) / 1_000_000 * float(saida or 0)
-    return round(total, 6)
+    declarado = getattr(provider, "supports_tools", None)
+    if declarado is not None:
+        return bool(declarado)
+    try:
+        parametros = inspect.signature(provider.complete).parameters.values()
+    except (TypeError, ValueError):
+        return False
+    return any(
+        parametro.name == "tools" or parametro.kind is parametro.VAR_KEYWORD
+        for parametro in parametros
+    )
+
+
+def iniciar_contagem() -> None:
+    _USO_DO_TURNO.set({
+        "entrada": 0, "saida": 0, "total": 0, "cacheado": 0,
+        "chamadas": 0, "custo_usd": 0.0, "chamadas_com_custo": 0,
+    })
 
 
 def contagem_do_turno():
     uso = _USO_DO_TURNO.get()
     # `cacheado: 0` seria ambiguo: pode ser "nenhum acerto de cache" ou "o
     # provedor nao informa". Quando nao ha o que dizer, o campo nao aparece.
-    if isinstance(uso, dict) and not uso.get("cacheado"):
-        return {chave: valor for chave, valor in uso.items() if chave != "cacheado"}
+    if isinstance(uso, dict):
+        ocultos = set()
+        if not uso.get("cacheado"):
+            ocultos.add("cacheado")
+        if not uso.get("chamadas_com_custo"):
+            ocultos.update({"custo_usd", "chamadas_com_custo"})
+        return {chave: valor for chave, valor in uso.items() if chave not in ocultos}
     return uso
 
 
@@ -54,12 +60,20 @@ def _somar(uso) -> None:
     atual = _USO_DO_TURNO.get()
     if not atual or not isinstance(uso, dict):
         return
-    atual["entrada"] += int(uso.get("entrada") or 0)
-    atual["saida"] += int(uso.get("saida") or 0)
-    atual["total"] += int(uso.get("total") or 0)
+    entrada = int(uso.get("entrada") or 0)
+    saida = int(uso.get("saida") or 0)
+    atual["entrada"] += entrada
+    atual["saida"] += saida
+    atual["total"] += int(uso.get("total") or 0) or (entrada + saida)
     # Parte da entrada que veio do cache do provedor (cobrada a 10% no Gemini).
     atual["cacheado"] = int(atual.get("cacheado") or 0) + int(uso.get("cacheado") or 0)
     atual["chamadas"] += 1
+    if uso.get("custo_usd") is not None:
+        try:
+            atual["custo_usd"] += float(uso["custo_usd"])
+            atual["chamadas_com_custo"] += 1
+        except (TypeError, ValueError):
+            pass
 
 
 def _anotar_o_gasto(provedor: str, uso) -> None:
@@ -124,6 +138,9 @@ class ChainProvider:
         self._last_model = contextvars.ContextVar(f"robin_last_model_{id(self)}", default=None)
         self._last_provider = contextvars.ContextVar(f"robin_last_provider_{id(self)}", default=None)
         self._last_usage = contextvars.ContextVar(f"robin_last_usage_{id(self)}", default=None)
+        self._last_tool_calls = contextvars.ContextVar(
+            f"robin_last_tool_calls_{id(self)}", default=None,
+        )
         self.cache = cache
 
     @property
@@ -149,6 +166,14 @@ class ChainProvider:
     @last_provider.setter
     def last_provider(self, value):
         self._last_provider.set(value)
+
+    @property
+    def last_tool_calls(self):
+        return self._last_tool_calls.get()
+
+    @last_tool_calls.setter
+    def last_tool_calls(self, value):
+        self._last_tool_calls.set(value)
 
     @staticmethod
     def exigencias(messages: List[Dict[str, Any]]) -> set:
@@ -198,8 +223,12 @@ class ChainProvider:
         return saida
 
     async def complete(self, messages: List[Dict[str, Any]], temperature: float = 0.2,
-                       context: Optional[str] = None, selection=None) -> str:
-        if self.cache is not None:
+                       context: Optional[str] = None, selection=None,
+                       tools: Optional[list] = None,
+                       reasoning_effort: Optional[str] = None) -> str:
+        # Uma entrada com ferramentas não pode reutilizar só o texto em cache:
+        # a chamada estruturada e seu id também fazem parte da resposta.
+        if self.cache is not None and not tools:
             cached = await self.cache.get(messages, temperature, context)
             if cached is not None:
                 self.last_model = "cache"
@@ -209,9 +238,20 @@ class ChainProvider:
         self.last_model = None
         self.last_provider = None
         self.last_usage = None
+        self.last_tool_calls = None
         exigidas = self.exigencias(messages)
         messages = self.para_provedor(messages)
-        ordered = self.router.order(self.providers, context, selection=selected, requires=exigidas)
+        candidatos = self.providers
+        if tools:
+            candidatos = [
+                provider for provider in candidatos
+                if suporta_ferramentas(provider)
+            ]
+            if not candidatos:
+                raise RuntimeError(
+                    "Nenhum provedor configurado aceita ferramentas neste turno."
+                )
+        ordered = self.router.order(candidatos, context, selection=selected, requires=exigidas)
         if not ordered and exigidas:
             raise RuntimeError(
                 "Nenhum provedor configurado consegue ler imagem neste turno."
@@ -234,6 +274,10 @@ class ChainProvider:
                     kwargs = {}
                     if "context" in parametros or accepts_any:
                         kwargs["context"] = context
+                    if tools and ("tools" in parametros or accepts_any):
+                        kwargs["tools"] = tools
+                    if reasoning_effort and ("reasoning_effort" in parametros or accepts_any):
+                        kwargs["reasoning_effort"] = reasoning_effort
                     if pname == selected.provider and selected.model:
                         if "preferred_model" in parametros or accepts_any:
                             kwargs["preferred_model"] = selected.model
@@ -248,19 +292,24 @@ class ChainProvider:
                     result = await provider.complete(messages, temperature, **kwargs)
                     latency_ms = (time.perf_counter() - inicio) * 1000.0
                     self.last_model = getattr(provider, "last_model", type(provider).__name__)
-                    self.last_provider = pname
+                    # Um Reforçado pode conter várias contas. Preserve quem de
+                    # fato respondeu para uso e feedback, sem deixar de medir o
+                    # bloco Reforçado como uma decisão do router.
+                    efetivo = getattr(provider, "last_provider", None) or pname
+                    self.last_provider = efetivo
                     # Tokens de quem respondeu: quem chama nao precisa saber
                     # qual provedor foi para contar o custo do turno.
                     self.last_usage = getattr(provider, "last_usage", None)
+                    self.last_tool_calls = getattr(provider, "last_tool_calls", None)
                     _somar(self.last_usage)
-                    _anotar_o_gasto(pname, self.last_usage)
+                    _anotar_o_gasto(efetivo, self.last_usage)
                     for failed_model in dict.fromkeys(getattr(provider, "model_failures", []) or []):
                         self.router.record_model_failure(pname, failed_model)
                     self.router.record_success(pname, latency_ms, model=self.last_model, context=context)
                     quota = getattr(provider, "last_quota", None)
                     if isinstance(quota, dict):
                         self.router.record_quota(pname, quota.get("rpm"), quota.get("rpd"))
-                    if self.cache is not None:
+                    if self.cache is not None and not tools:
                         await self.cache.set(messages, temperature, context, result)
                     return result
                 except Exception as exc:
