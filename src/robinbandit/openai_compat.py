@@ -15,7 +15,7 @@ from .token_budget import model_token_budget
 logger = logging.getLogger(__name__)
 
 
-def _normalizar_usage(bruto) -> Optional[Dict[str, int]]:
+def _normalizar_usage(bruto) -> Optional[Dict[str, Any]]:
     """Contagem de tokens do provedor, no formato OpenAI."""
     if not isinstance(bruto, dict):
         return None
@@ -34,6 +34,14 @@ def _normalizar_usage(bruto) -> Optional[Dict[str, int]]:
     cacheado = cacheado or int(bruto.get("cache_read_input_tokens") or 0)
     if cacheado:
         usado["cacheado"] = cacheado
+    custo = bruto.get("cost")
+    if custo is None:
+        custo = bruto.get("total_cost_usd")
+    try:
+        if custo is not None and float(custo) >= 0:
+            usado["custo_usd"] = float(custo)
+    except (TypeError, ValueError):
+        pass
     return usado
 
 
@@ -116,9 +124,10 @@ class OpenAICompatProvider:
     o que muda entre provedores é só a URL base, a chave e a lista de modelos.
     Mesma interface do GroqProvider/OpenRouterProvider: tenta cada modelo da
     lista na ordem até um responder, e expõe `last_model` pro painel de debug.
-
     O `name` vira o prefixo do `last_model` (ex.: "cerebras:llama-3.3-70b") e
     aparece nos logs — é como o resto do sistema sabe QUEM respondeu."""
+
+    supports_tools = True
 
     def __init__(
         self,

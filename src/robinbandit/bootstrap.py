@@ -208,7 +208,9 @@ def resumo_da_partida(
     linhas += [
         "",
         f"painel     http://{host}:{port}/painel",
-        f"endpoint   http://{host}:{port}/v1/chat/completions",
+        f"chat       http://{host}:{port}/v1/chat/completions",
+        f"responses  http://{host}:{port}/v1/responses",
+        f"anthropic  http://{host}:{port}/v1/messages",
         "",
         "Para apontar seu agente para cá, a tela Conectar do painel gera a",
         "configuração pronta de Claude Code, Codex, Cline, OpenCode e curl.",

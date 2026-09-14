@@ -35,8 +35,81 @@ function medidor(valor, estimado) {
     (estimado && n ? '<span class="palpite-nota">palpite</span>' : '') + '</span>';
 }
 
+/* — Primeiros passos — */
+/* So aparece antes da primeira chamada: passada ela, a fila em baixo responde
+ * sozinha. Ate existir, quem instalava encontrava "nenhuma chamada ainda" — a
+ * informacao estava certa e nao dizia o que fazer com ela.
+ *
+ * Cada passo se resolve conforme acontece; nao ha nada para marcar. */
+function desenharInicio() {
+  const onde = $('inicio');
+  if (!onde) return;
+
+  const vazio = (estado.chamadas || 0) === 0;
+
+  // Uma tela, um estado. Sem isto, a tela vazia dizia "nenhuma chamada ainda"
+  // em tres lugares — no placar, na tabela e aqui — e ainda deixava tres
+  // titulos de secao pairando sobre blocos sem nada dentro. Enquanto nao ha o
+  // que mostrar, o que aparece e o que fazer; quando ha, os passos somem.
+  ['placar', 'ordem', 'credito', 'historico'].forEach(id => {
+    const el = $(id);
+    if (!el) return;
+    el.hidden = vazio;
+    // O `h2` de cada bloco e o irmao imediatamente acima dele.
+    const titulo = el.previousElementSibling;
+    if (titulo && titulo.tagName === 'H2') titulo.hidden = vazio;
+  });
+
+  if (!vazio) { onde.innerHTML = ''; return; }
+
+  const listaProvedores = (estado.provedores || []).map(p => {
+    const conhecido = ((config && config.provedores) || []).find(c => c.nome === p.nome);
+    return conhecido ? conhecido.label : p.nome;
+  });
+  const provedores = listaProvedores.length;
+  const ferramenta = (ferramentas || []).filter(f => f.conexao)[0];
+
+  const passos = [
+    {
+      feito: provedores > 0,
+      titulo: T('inicio.p1.titulo'),
+      texto: provedores > 0
+        ? T('inicio.p1.feito', { quem: listaProvedores.join(' + ') })
+        : T('inicio.p1.falta')
+    },
+    {
+      feito: !!ferramenta,
+      titulo: T('inicio.p2.titulo'),
+      texto: ferramenta ? T('inicio.p2.feito', { quem: ferramenta.label }) : T('inicio.p2.texto'),
+      acao: ferramenta ? null : T('inicio.ir_conectar')
+    },
+    {
+      feito: false,
+      titulo: T('inicio.p3.titulo'),
+      texto: T('inicio.p3.texto')
+    }
+  ];
+
+  onde.innerHTML =
+    '<h2>' + T('inicio.titulo') + ' <span class="risco"></span></h2>' +
+    '<ol class="passos">' +
+    passos.map((p, i) =>
+      '<li' + (p.feito ? ' class="feito"' : '') + '>' +
+      // O numero vira marca de concluido: o estado nao fica so na cor.
+      '<span class="n">' + (p.feito ? '&#10003;' : '0' + (i + 1)) + '</span>' +
+      '<div><strong>' + p.titulo + '</strong>' +
+      '<p>' + p.texto + '</p>' +
+      (p.acao ? '<button type="button" class="acao" id="ir-conectar">' + p.acao + '</button>' : '') +
+      '</div></li>').join('') +
+    '</ol>';
+
+  const botao = $('ir-conectar');
+  if (botao) botao.addEventListener('click', () => trocarTela('conectar'));
+}
+
 /* — Agora — */
 function desenharAgora() {
+  desenharInicio();
   const linhas = estado.ordem || [];
   const saude = {};
   (estado.provedores || []).forEach(p => (saude[p.nome] = p));
@@ -51,7 +124,8 @@ function desenharAgora() {
   $('placar').innerHTML =
     '<div><b class="verde">' + (primeiro ? primeiro.nome : '—') + '</b>' +
     '<span>primeiro da fila</span>' +
-    '<small>' + (primeiro ? primeiro.motivo : 'nenhuma chamada ainda') + '</small></div>' +
+    '<small>' + T('prov.modo.' + (estado.estrategia || 'adaptive')) +
+    (primeiro && primeiro.motivo ? ': ' + primeiro.motivo : '') + '</small></div>' +
     '<div><b>' + chamadas + '</b><span>chamadas</span>' +
     '<small>desde que o servidor subiu</small></div>' +
     '<div><b' + (emEspera ? ' class="ambar"' : '') + '>' + dePe + ' de ' + total + '</b>' +
@@ -79,28 +153,75 @@ function desenharAgora() {
 }
 
 /* — Provedores por tier — */
-const ROTULOS = { adaptive: 'Deixar ele aprender', tier: 'Meu tier manda' };
+let provedoresDeTodos = false;
 
 function desenharEstrategia() {
   const atual = config.estrategia;
   $('estrategia').innerHTML = Object.keys(config.estrategias).map(id =>
     '<label class="escolha" data-ativa="' + (id === atual) + '">' +
     '<input type="radio" name="estrategia" value="' + id + '"' + (id === atual ? ' checked' : '') + '>' +
-    '<span><span class="titulo">' + (ROTULOS[id] || id) + '</span>' +
+    '<span><span class="titulo">' + T('prov.modo.' + id) + '</span>' +
     '<span class="texto">' + config.estrategias[id] + '</span></span></label>').join('');
   document.querySelectorAll('input[name=estrategia]').forEach(input =>
     input.addEventListener('change', async () => {
       try {
         await salvar('config/estrategia', { valor: input.value });
         config.estrategia = input.value;
+        provedoresDeTodos = false;
         desenharEstrategia();
+        desenharOrdemCadeia();
+        desenharTiers();
         recado('recado-prov', 'Vale a partir da próxima chamada.');
       } catch (e) { recado('recado-prov', e.message); }
     }));
 }
 
+function desenharOrdemCadeia() {
+  const onde = $('ordem-cadeia');
+  const mostra = config.estrategia === 'fixed' || config.estrategia === 'round_robin';
+  onde.hidden = !mostra;
+  if (!mostra) { onde.innerHTML = ''; return; }
+  const catalogo = new Map((config.provedores || []).map(p => [p.nome, p]));
+  const nomes = (config.cadeia || []).filter(n => n !== 'fallback' && catalogo.has(n));
+  onde.innerHTML = '<h2>' + T('prov.ordem') + ' <span class="risco"></span></h2>' +
+    '<p class="dica">' + T('prov.ordem.' + config.estrategia) + '</p>' +
+    '<ol class="lista-cadeia">' + nomes.map((nome, i) => {
+      const p = catalogo.get(nome);
+      return '<li>' + logo(nome) + '<span>' + (p.label || nome) + '</span>' +
+        '<code>' + nome + '</code><span class="mover">' +
+        '<button type="button" data-move="-1" data-indice="' + i + '" aria-label="Subir ' + nome + '"' + (i === 0 ? ' disabled' : '') + '>↑</button>' +
+        '<button type="button" data-move="1" data-indice="' + i + '" aria-label="Descer ' + nome + '"' + (i === nomes.length - 1 ? ' disabled' : '') + '>↓</button>' +
+        '</span></li>';
+    }).join('') + '</ol>';
+  onde.querySelectorAll('[data-move]').forEach(botao => botao.addEventListener('click', async () => {
+    const de = Number(botao.dataset.indice);
+    const para = de + Number(botao.dataset.move);
+    const nova = nomes.slice();
+    [nova[de], nova[para]] = [nova[para], nova[de]];
+    try {
+      await salvar('config/cadeia', { nomes: nova });
+      config.cadeia = nova;
+      desenharOrdemCadeia();
+      recado('recado-prov', 'Nova ordem aplicada.');
+    } catch (e) { recado('recado-prov', e.message); }
+  }));
+}
+
 function desenharTiers() {
   const porTier = { 1: [], 2: [], 3: [] };
+  const modoDeOrdem = config.estrategia === 'fixed' || config.estrategia === 'round_robin';
+  $('filtro-provedores').innerHTML = modoDeOrdem
+    ? '<button class="aba" type="button" data-provedores="' + !provedoresDeTodos + '" aria-pressed="' + provedoresDeTodos + '">' +
+      (provedoresDeTodos ? T('prov.voltar_ordem') : T('prov.catalogo')) + '</button>'
+    : '<button class="aba" type="button" data-provedores="false" aria-pressed="' + !provedoresDeTodos + '">' +
+      T('prov.na_cadeia') + '</button>' +
+      '<button class="aba" type="button" data-provedores="true" aria-pressed="' + provedoresDeTodos + '">' +
+      T('prov.catalogo') + '</button>';
+  document.querySelectorAll('[data-provedores]').forEach(b => b.addEventListener('click', () => {
+    provedoresDeTodos = b.dataset.provedores === 'true';
+    desenharTiers();
+  }));
+
   // Conta nao e provedor: `ultra` e `ultra_max` batem no mesmo endpoint do
   // OpenRouter com outra chave, e listar os tres lado a lado faria parecer que
   // existem tres OpenRouters.
@@ -111,11 +232,17 @@ function desenharTiers() {
     .filter(p => !p.conta_de)
     // O fallback nao e provedor: e o aviso de que nenhum respondeu.
     .filter(p => p.nome !== 'fallback')
+    // Catálogo é possibilidade, não estado atual. A tela abre só com o que a
+    // pessoa usa; os outros aparecem quando ela pede para escolher um novo.
+    .filter(p => provedoresDeTodos || p.na_cadeia)
     .forEach(p => (porTier[p.tier] || porTier[2]).push(p));
 
   // Só os tiers que recebem provedor. O tier 9 existia como faixa vazia que
   // não aceitava arrasto — uma caixa para não receber nada.
-  $('tiers').innerHTML = Object.keys(config.tiers).filter(n => porTier[n]).map(n =>
+  const tiersVisiveis = Object.keys(config.tiers).filter(n => porTier[n] && porTier[n].length);
+  $('tiers').hidden = modoDeOrdem && !provedoresDeTodos;
+  $('nota-fallback').hidden = modoDeOrdem && !provedoresDeTodos;
+  $('tiers').innerHTML = tiersVisiveis.length ? tiersVisiveis.map(n =>
     '<div class="faixa"' + (n === '9' ? '' : ' data-tier="' + n + '"') + '>' +
     '<div class="titulo">' + config.tiers[n] + ' <em>tier ' + n + ' · ' +
     porTier[n].length + '</em></div><div class="grade">' +
@@ -126,7 +253,7 @@ function desenharTiers() {
         (p.na_cadeia ? 'na cadeia' : 'fora') + '</button></div></div>';
     }).join('')
       : '<p class="vazio">vazio</p>') +
-    '</div></div>').join('');
+    '</div></div>').join('') : '<p class="vazio">' + T('prov.vazio') + '</p>';
 
   document.querySelectorAll('.prov').forEach(el => {
     el.addEventListener('dragstart', ev => {
@@ -197,7 +324,7 @@ function desenharModelos() {
       '</span></div>').join('')
       : '<p class="vazio">Sem lista própria: o provedor usa o modelo padrão dele.</p>';
     return '<div class="provlinha"><div class="topo">' + logo(p.nome) +
-      '<span class="quem">' + p.nome + '</span>' +
+      '<span class="quem">' + (p.label || p.nome) + '</span>' +
       '<span class="obs">' + (p.modelos_proprios ? 'ordem sua' : 'ordem de fábrica') +
       '<button type="button" class="descobrir" data-descobre="' + p.nome + '">ver o que ele tem</button></span></div>' +
       '<div class="modelos">' + linhas + '</div>' +
@@ -273,7 +400,7 @@ function desenharModelos() {
           }));
       } catch (e) {
         caixa.innerHTML = '<p class="dica">não consegui perguntar ao ' + quem +
-          ' — normalmente é chave faltando na tela de Credenciais.</p>';
+          '. Normalmente é chave faltando na tela de Credenciais.</p>';
       }
       b.textContent = 'ver o que ele tem';
     }));
@@ -305,6 +432,11 @@ function desenharAbas(escolhida) {
 
   const f = ferramentas.filter(x => x.id === escolhida)[0] || ferramentas[0];
   if (!f) return;
+  const url = new URL(window.location.href);
+  if (url.searchParams.get('tela') === 'conectar') {
+    url.searchParams.set('ferramenta', f.id);
+    window.history.replaceState({}, '', url);
+  }
   $('arquivo').textContent = f.arquivo || '';
   $('config-texto').textContent = f.conteudo;
   $('como').textContent = f.como || '';
@@ -380,7 +512,7 @@ async function carregarHistorico() {
       const faixa = (d.faixas || {})[r.provedor] || [];
       const barras = faixa.map(dia =>
         '<i data-s="' + dia.saude + '" title="' + dia.dia + ': ' + dia.ok + ' ok, ' +
-        dia.err + ' erro' + (dia.motivo ? ' — ' + dia.motivo : '') + '"></i>').join('');
+        dia.err + ' erro' + (dia.motivo ? ': ' + dia.motivo : '') + '"></i>').join('');
       const nota = r.dias_ruins
         ? r.dias_ruins + (r.dias_ruins === 1 ? ' dia ruim' : ' dias ruins') +
           (r.pior_motivo ? ' · ' + r.pior_motivo : '')
@@ -406,7 +538,9 @@ async function carregarConfig() {
   }
   desenharIdioma();
   desenharEstrategia();
+  desenharOrdemCadeia();
   desenharTiers();
+  desenharReservados();
   desenharModelos();
 }
 
@@ -437,6 +571,8 @@ async function trocarIdioma(qual) {
   // Redesenha o que e montado pelo JS e nao carrega `data-t`.
   desenharAgora();
   desenharEstrategia();
+  desenharOrdemCadeia();
+  desenharTiers();
   if (ferramentas.length) desenharAbas((document.querySelector('.aba[aria-pressed="true"]') || {}).dataset?.id);
 }
 
@@ -453,7 +589,8 @@ async function atualizar() {
       // colar a configuração, usar o agente, e a linha mudar sozinha.
       const escolhida = (document.querySelector('.aba[aria-pressed="true"]') || {}).dataset;
       ferramentas = d.ferramentas;
-      desenharAbas((escolhida && escolhida.id) || (ferramentas[0] && ferramentas[0].id));
+      const pedida = new URLSearchParams(window.location.search).get('ferramenta');
+      desenharAbas((escolhida && escolhida.id) || pedida || (ferramentas[0] && ferramentas[0].id));
     }
   } catch (e) { $('pulso').textContent = 'servidor fora do ar'; }
 }
@@ -475,33 +612,61 @@ async function carregarCredenciais() {
 }
 
 function desenharReservados() {
-  // Qual conta serve cada tier de selecao. E o que separa "gaste a gratuita"
-  // de "pode gastar meu credito".
   const alvos = contas.alvos || {};
-  const nomes = Object.keys(alvos);
-  if (!nomes.length) { $('reservados').innerHTML = ''; return; }
-  const opcoes = (contas.contas || []).filter(c => c.configurada);
-  $('reservados').innerHTML = '<h2>Reservado para as tarefas pesadas</h2>' + nomes.map(t =>
-    '<div class="reservado"><strong>' + alvos[t] + '</strong>' +
-    '<p>Quando o agente pedir este modo, o RobinBandit usa esta conta em vez de decidir sozinho.</p>' +
-    '<select data-tier="' + t + '">' +
-    '<option value="">decidir sozinho</option>' +
-    opcoes.map(c => '<option value="' + c.id + '"' +
-      ((contas.tiers || {})[t] === c.id ? ' selected' : '') + '>' +
-      c.label + (c.paga ? ' · paga' : '') + '</option>').join('') +
-    '</select></div>').join('');
+  if (!alvos.ultra) { $('reservados').innerHTML = ''; return; }
+  const disponiveis = (contas.contas || []).filter(c => c.configurada);
+  const porId = new Map(disponiveis.map(c => [c.id, c]));
+  const ordem = (contas.reforcado || []).filter(id => porId.has(id));
+  const fora = disponiveis.filter(c => !ordem.includes(c.id));
 
-  document.querySelectorAll('[data-tier]').forEach(sel =>
-    sel.addEventListener('change', async () => {
-      try {
-        const r = await fetch('contas/tier', {
-          method: 'PUT', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ tier: sel.dataset.tier, conta: sel.value }),
-        });
-        if (!r.ok) throw new Error((await r.json()).detail || 'não deu');
-        recado('recado-cred', 'Pronto. Vale já na próxima chamada.');
-      } catch (e) { recado('recado-cred', e.message); }
+  $('reservados').innerHTML = '<h2>' + T('cred.reforcado') + ' <span class="risco"></span></h2>' +
+    '<div class="reforcado-card"><p>' + T('cred.ref_desc') + '</p>' +
+    (ordem.length ? '<ol class="lista-cadeia lista-reforcado">' + ordem.map((id, i) => {
+      const c = porId.get(id);
+      return '<li>' + logo(c.provider) + '<span>' + c.label +
+        (c.paga ? ' <small>paga</small>' : '') + '</span><code>' + c.id + '</code>' +
+        '<span class="mover">' +
+        '<button type="button" data-ref-move="-1" data-indice="' + i +
+        '" aria-label="Subir ' + c.label + '"' + (i === 0 ? ' disabled' : '') + '>↑</button>' +
+        '<button type="button" data-ref-move="1" data-indice="' + i +
+        '" aria-label="Descer ' + c.label + '"' + (i === ordem.length - 1 ? ' disabled' : '') + '>↓</button>' +
+        '<button type="button" class="apagar" data-ref-remove="' + i +
+        '" aria-label="Remover ' + c.label + '">×</button></span></li>';
+    }).join('') + '</ol>' : '<p class="vazio compacto">Nenhuma conta escolhida.</p>') +
+    (fora.length ? '<div class="adicionar-ref"><select id="ref-conta">' +
+      fora.map(c => '<option value="' + c.id + '">' + c.label +
+        (c.paga ? ' · paga' : '') + '</option>').join('') + '</select>' +
+      '<button type="button" class="acao" id="ref-adicionar">adicionar</button></div>' : '') +
+    '<p class="como">' + T('cred.ref_header') +
+    ' <code>X-RobinBandit-Mode: reinforced</code>.</p></div>';
+
+  const salvarOrdem = async nova => {
+    const r = await fetch('contas/reforcado', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ contas: nova }),
+    });
+    if (!r.ok) throw new Error((await r.json()).detail || 'não deu');
+    contas.reforcado = (await r.json()).contas;
+    desenharReservados();
+    recado('recado-prov', 'Nova ordem aplicada na próxima chamada.');
+  };
+  document.querySelectorAll('[data-ref-move]').forEach(botao =>
+    botao.addEventListener('click', async () => {
+      const de = Number(botao.dataset.indice);
+      const para = de + Number(botao.dataset.refMove);
+      const nova = ordem.slice();
+      [nova[de], nova[para]] = [nova[para], nova[de]];
+      try { await salvarOrdem(nova); } catch (e) { recado('recado-prov', e.message); }
     }));
+  document.querySelectorAll('[data-ref-remove]').forEach(botao =>
+    botao.addEventListener('click', async () => {
+      const nova = ordem.filter((_, i) => i !== Number(botao.dataset.refRemove));
+      try { await salvarOrdem(nova); } catch (e) { recado('recado-prov', e.message); }
+    }));
+  if ($('ref-adicionar')) $('ref-adicionar').addEventListener('click', async () => {
+    try { await salvarOrdem([...ordem, $('ref-conta').value]); }
+    catch (e) { recado('recado-prov', e.message); }
+  });
 }
 
 function desenharContas() {
@@ -540,7 +705,7 @@ function desenharContas() {
           '<span class="estado' + (c.configurada ? ' tem' : '') + '">' +
           (c.configurada ? 'autenticado' : 'não conectado') + '</span></div>' +
           '<p class="cli">Quem autentica é o <b>' + qual + '</b>, com a assinatura que você já usa. ' +
-          'O RobinBandit não lê nem renova credencial — só chama o executável.' +
+          'O RobinBandit não lê nem renova credencial. Ele só chama o executável.' +
           // O detalhe so entra quando acrescenta (a versao do CLI, o motivo
           // de nao estar logado). "autenticado" depois de "autenticado" e eco.
           (c.detalhe && c.detalhe !== 'autenticado' ? ' <em>' + c.detalhe + '</em>' : '') +
@@ -556,7 +721,7 @@ function desenharContas() {
         '<span class="dica">' + k.dica + '</span>' +
         '<button type="button" class="marca-paga' + (k.paga ? '' : ' off') + '" data-paga="' +
         c.key_env + '" data-i="' + k.i + '" data-vale="' + (k.paga ? '1' : '0') +
-        '" title="' + (k.paga ? 'crédito pago — clique para desmarcar' : 'marcar como crédito pago') +
+        '" title="' + (k.paga ? 'crédito pago; clique para desmarcar' : 'marcar como crédito pago') +
         '">paga</button>' +
         '<span class="acoes">' +
         '<button type="button" data-renomear="' + c.key_env + '" data-i="' + k.i +
@@ -651,6 +816,13 @@ function milhar(n) {
   return String(n);
 }
 
+function dolar(n) {
+  return new Intl.NumberFormat(IDIOMA === 'pt' ? 'pt-BR' : 'en-US', {
+    style: 'currency', currency: 'USD', minimumFractionDigits: 2,
+    maximumFractionDigits: Number(n || 0) < 0.01 ? 4 : 2
+  }).format(Number(n || 0));
+}
+
 const MESES = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
 const SEMANA = ['', 'seg', '', 'qua', '', 'sex', ''];
 
@@ -668,7 +840,7 @@ function calendarioDe(dias) {
     const quanto = x.total
       ? milhar(x.total) + ' tokens em ' + x.chamadas + ' chamada' + (x.chamadas === 1 ? '' : 's')
       : 'sem uso';
-    celulas.push('<i data-n="' + n + '" title="' + x.dia + ' — ' + quanto + '"></i>');
+    celulas.push('<i data-n="' + n + '" title="' + x.dia + ': ' + quanto + '"></i>');
   });
 
   // Um rotulo por mes, largo o bastante para cobrir as semanas dele.
@@ -720,21 +892,23 @@ async function carregarUso() {
   // dizer e por que ainda nao ha dado.
   // O gasto e SEU, somado. Uma lista de 14 provedores no topo respondia
   // "quanto cada um gastou" quando a pergunta era "quanto eu gastei".
+  const comCusto = mes.chamadas_com_custo || 0;
   $('uso-numeros').innerHTML = gastou
-    ? '<div><b class="verde">' + milhar(mes.total || 0) + '</b><span>tokens em 30 dias</span>' +
-      '<small>' + milhar(mes.entrada || 0) + ' de entrada · ' + milhar(mes.saida || 0) + ' de saída</small></div>' +
+    ? '<div><b class="verde">' + milhar(mes.entrada || 0) + '</b><span>entrada</span>' +
+      '<small>tokens nos últimos 30 dias</small></div>' +
+      '<div><b>' + milhar(mes.saida || 0) + '</b><span>saída</span>' +
+      '<small>' + (mes.cacheado ? milhar(mes.cacheado) + ' tokens vieram do cache' : 'tokens nos últimos 30 dias') + '</small></div>' +
+      '<div><b class="ambar">' + (comCusto ? dolar(mes.custo_usd) : 'não informado') + '</b><span>custo em USD</span>' +
+      '<small>' + (comCusto ? 'informado em ' + comCusto + ' de ' + mes.chamadas + ' chamadas' : 'nenhum provedor enviou preço') + '</small></div>' +
       '<div><b>' + (mes.chamadas || 0) + '</b><span>chamadas</span>' +
-      '<small>em ' + (mes.provedores || 0) + ' provedor' + (mes.provedores === 1 ? '' : 'es') + '</small></div>' +
-      '<div><b>' + milhar(tudo.total || 0) + '</b><span>no ano</span>' +
-      (mes.cacheado ? '<small>' + milhar(mes.cacheado) + ' vieram do cache</small>' : '<small>desde o primeiro turno</small>') +
-      '</div>'
+      '<small>' + milhar(mes.total || 0) + ' tokens no total</small></div>'
     : '';
 
   $('uso-calendario').innerHTML = gastou
     ? calendarioDe(dias)
     : '<div class="sem-uso"><b>Nenhum turno medido ainda</b><span>' +
       'A contagem começa na primeira resposta que passar por aqui. Aponte sua ' +
-      'ferramenta para este endereço na tela Conectar — só entra no gráfico quem ' +
+      'ferramenta para este endereço na tela Conectar. Só entra no gráfico quem ' +
       'informa o consumo junto da resposta.</span></div>';
 
   const linhas = d.por_provedor || [];
@@ -744,7 +918,10 @@ async function carregarUso() {
     '<div class="gasto">' + logo(x.provedor) +
     '<span class="quem">' + x.provedor + '</span>' +
     '<span class="barra"><span style="width:' + Math.round(x.total / maior * 100) + '%"></span></span>' +
-    '<span class="n">' + milhar(x.total) + '</span></div>').join('');
+    '<span class="detalhe">' + milhar(x.entrada) + ' entrada<br>' + milhar(x.saida) + ' saída</span>' +
+    '<span class="n">' + milhar(x.total) + '<small>' +
+      (x.chamadas_com_custo ? dolar(x.custo_usd) : 'custo não informado') +
+    '</small></span></div>').join('');
 }
 
 async function carregarJanelas() {
@@ -785,13 +962,13 @@ async function carregarJanelas() {
     (p.ativo ? 'desligar' : 'ligar') + '</button></div>' +
     '<p>O cooldown vence por tempo, não por evidência: se a cota voltou antes, o ' +
     'roteador continua ignorando o provedor; se não voltou, quem descobre é o seu ' +
-    'próximo turno. O ping é uma chamada mínima, fora de um turno, só para saber — ' +
-    'custa cota para medir cota, e por isso vem desligado.</p>' +
+    'próximo turno. O ping é uma chamada mínima, fora de um turno, só para saber. ' +
+    'Custa uma chamada e por isso vem desligado.</p>' +
     '<div class="campos">' +
     '<label>a cada <input type="number" id="ping-intervalo" min="60" step="30" value="' +
     Math.round(p.intervalo_s || 300) + '"> segundos</label>' +
     '<label><input type="checkbox" id="ping-cooldown"' + (p.so_em_cooldown ? ' checked' : '') +
-    '> só quem está fora</label>' +
+    '> apenas provedores em cooldown</label>' +
     '</div>';
 
   $('btn-ping').addEventListener('click', () => salvarPing({ ativo: !p.ativo }));
@@ -865,14 +1042,43 @@ function desenharFormDeConta() {
   });
 }
 
+const TELAS = ['agora', 'provedores', 'modelos', 'credenciais', 'janelas', 'uso', 'conectar'];
+
+/* Extraida do listener para o botao dos primeiros passos poder chamar: dois
+ * lugares trocando de tela com a mesma logica escrita duas vezes sairiam do
+ * lugar no primeiro ajuste. */
+function trocarTela(qual) {
+  if (!TELAS.includes(qual)) qual = 'agora';
+  document.querySelectorAll('nav button[data-tela]').forEach(b => {
+    // Tem que ser "page", não string vazia: o realce da aba ativa vem de
+    // `nav button[aria-current="page"]` no CSS, e `toggleAttribute` grava "".
+    if (b.dataset.tela === qual) b.setAttribute('aria-current', 'page');
+    else b.removeAttribute('aria-current');
+  });
+  TELAS.forEach(t => $('tela-' + t).classList.toggle('oculto', t !== qual));
+  const url = new URL(window.location.href);
+  if (qual === 'agora') url.searchParams.delete('tela');
+  else url.searchParams.set('tela', qual);
+  if (qual !== 'conectar') url.searchParams.delete('ferramenta');
+  window.history.replaceState({}, '', url);
+}
+
 document.querySelectorAll('nav button[data-tela]').forEach(b =>
-  b.addEventListener('click', () => {
-    document.querySelectorAll('nav button[data-tela]').forEach(o =>
-      o.removeAttribute('aria-current'));
-    b.setAttribute('aria-current', 'page');
-    ['agora', 'provedores', 'modelos', 'credenciais', 'janelas', 'uso', 'conectar'].forEach(t =>
-      $('tela-' + t).classList.toggle('oculto', t !== b.dataset.tela));
-  }));
+  b.addEventListener('click', () => trocarTela(b.dataset.tela)));
+
+$('copiar-config').addEventListener('click', async () => {
+  const botao = $('copiar-config');
+  const texto = $('config-texto').textContent;
+  try {
+    await navigator.clipboard.writeText(texto);
+    botao.textContent = T('con.copiado');
+    window.setTimeout(() => { botao.textContent = T('con.copiar'); }, 1400);
+  } catch (e) {
+    recado('conexao', 'Não consegui copiar. Selecione o bloco e copie manualmente.');
+  }
+});
+
+trocarTela(new URLSearchParams(window.location.search).get('tela') || 'agora');
 
 carregarConfig().catch(() => recado('recado-prov', 'não consegui ler a configuração'));
 carregarCredito();

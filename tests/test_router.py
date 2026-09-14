@@ -286,6 +286,32 @@ def test_strategy_tier_e_barreira_economica_com_fallback():
     assert r.order(providers)[0].name == "paid"
 
 
+def test_strategy_fixed_respeita_a_ordem_e_cooldown():
+    r = ProviderRouter(
+        providers={"primeiro": {}, "segundo": {}},
+        strategy="fixed",
+    )
+    providers = [_FakeProvider("segundo"), _FakeProvider("primeiro")]
+    assert [p.name for p in r.order(providers)] == ["segundo", "primeiro"]
+    r.record_failure("segundo", "rate_limit")
+    assert [p.name for p in r.order(providers)] == ["primeiro", "segundo"]
+
+
+def test_strategy_round_robin_so_avanca_com_tentativa_real():
+    r = ProviderRouter(
+        providers={"a": {}, "b": {}, "c": {}},
+        strategy="round_robin",
+    )
+    providers = [_FakeProvider("a"), _FakeProvider("b"), _FakeProvider("c")]
+    assert [p.name for p in r.order(providers)] == ["a", "b", "c"]
+    # Consultar de novo (como faz o painel) não move o anel.
+    assert [p.name for p in r.order(providers)] == ["a", "b", "c"]
+    r.record_success("a", 100)
+    assert [p.name for p in r.order(providers)] == ["b", "c", "a"]
+    r.record_failure("b", "error")
+    assert [p.name for p in r.order(providers)] == ["c", "a", "b"]
+
+
 def test_selecao_hybrid_poe_escolhido_na_frente_e_preserva_fallback():
     r = ProviderRouter(PRIORS, last_resort="demo")
     provs = [_FakeProvider("groq"), _FakeProvider("gemini"), _FakeProvider("demo")]

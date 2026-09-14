@@ -188,8 +188,10 @@ class RobinConfig:
 
         last_resort = routing.get("last_resort")
         strategy = str(routing.get("strategy", "adaptive")).strip().lower()
-        if strategy not in {"adaptive", "tier"}:
-            raise ValueError("routing.strategy deve ser adaptive ou tier")
+        if strategy not in {"adaptive", "tier", "fixed", "round_robin"}:
+            raise ValueError(
+                "routing.strategy deve ser adaptive, tier, fixed ou round_robin"
+            )
         chain_order = [str(v).strip().lower() for v in (routing.get("chain_order") or []) if str(v).strip()]
         unknown = [key for key in chain_order if key not in providers]
         if unknown:

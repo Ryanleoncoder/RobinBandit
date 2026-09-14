@@ -46,7 +46,7 @@ def codex(url: str, chave: str = "robinbandit") -> Dict[str, Any]:
     base = _base(url)
     return {
         "id": "codex",
-        "label": "OpenAI Codex",
+        "label": "Codex CLI",
         "formato": "toml",
         "arquivo": "~/.codex/config.toml",
         "conteudo": (
@@ -55,7 +55,9 @@ def codex(url: str, chave: str = "robinbandit") -> Dict[str, Any]:
             "[model_providers.robinbandit]\n"
             'name = "RobinBandit"\n'
             f'base_url = "{base}/v1"\n'
+            'wire_api = "responses"\n'
             'env_key = "ROBINBANDIT_API_KEY"\n'
+            'requires_openai_auth = false\n'
         ),
         "como": f"Some ao `~/.codex/config.toml` e exporte ROBINBANDIT_API_KEY={chave}.",
     }

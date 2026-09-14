@@ -63,7 +63,6 @@ def _papeis(
     model_id: str,
     input_modalities: List[str],
     output_modalities: List[str],
-    features: set,
 ) -> List[str]:
     entrada = {item.lower() for item in input_modalities}
     saida = {item.lower() for item in output_modalities}
@@ -120,7 +119,7 @@ def _normalizar(provider: str, raw: Dict[str, Any]) -> Dict[str, Any]:
 
     active = raw.get("active") is not False
     guard_only = any(token in model_id.lower() for token in ("guard", "safeguard"))
-    papeis = _papeis(model_id, input_modalities, output_modalities, lowered)
+    papeis = _papeis(model_id, input_modalities, output_modalities)
     if "imagem" in papeis:
         capabilities.append("image_gen")
     if "audio" in papeis:

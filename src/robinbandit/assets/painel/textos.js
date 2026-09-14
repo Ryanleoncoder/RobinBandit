@@ -25,8 +25,8 @@ const TEXTOS = {
   /* --- tela: agora --- */
   'agora.titulo': { pt: 'O que está acontecendo', en: 'What is happening' },
   'agora.intro': {
-    pt: 'A fila de agora e o motivo dela. Quem decide é o bandit: qualidade e saúde são posteriores Beta, e o sorteio é o que o faz continuar explorando em vez de travar no primeiro que deu certo.',
-    en: 'The queue right now, and the reason for it. The bandit decides: quality and health are Beta posteriors, and the draw is what keeps it exploring instead of locking onto the first thing that worked.'
+    pt: 'Veja a saúde de quem está disponível, qual modo está ativo e por que a fila ficou nesta ordem.',
+    en: 'See who is available, which mode is active, and why the queue is in this order.'
   },
   'agora.fila':      { pt: 'A fila de agora',    en: 'The queue right now' },
   'agora.credito':   { pt: 'Crédito restante',   en: 'Credit left' },
@@ -34,12 +34,36 @@ const TEXTOS = {
   'agora.sem_hist':  { pt: 'sem histórico ainda', en: 'no history yet' },
 
   /* --- tela: provedores --- */
-  'prov.titulo': { pt: 'Provedores por tier', en: 'Providers by tier' },
+  'prov.titulo': { pt: 'Provedores e rota', en: 'Providers and route' },
   'prov.intro': {
-    pt: 'Tier é um grupo, e vários provedores cabem no mesmo. Arraste para mudar de grupo; o botão tira e devolve à cadeia. O que o tier significa na hora de decidir depende da escolha abaixo.',
-    en: 'A tier is a group, and several providers fit in the same one. Drag to change group; the button removes a provider from the chain and puts it back. What the tier means at decision time depends on the choice below.'
+    pt: 'Escolha a política da fila. Os provedores disponíveis continuam protegidos por saúde e cooldown em todos os modos.',
+    en: 'Choose the queue policy. Available providers remain protected by health and cooldown in every mode.'
   },
-  'prov.como_decidir': { pt: 'Como decidir', en: 'How to decide' },
+  'prov.como_decidir': { pt: 'Rota normal', en: 'Normal route' },
+  'prov.normal_header': {
+    pt: 'Esta é a rota padrão, usada sem header ou com',
+    en: 'This is the default route, used without a header or with'
+  },
+  'prov.modo.adaptive': { pt: 'Adaptativo', en: 'Adaptive' },
+  'prov.modo.tier': { pt: 'Prioridade por tier', en: 'Tier priority' },
+  'prov.modo.fixed': { pt: 'Lista fixa', en: 'Fixed list' },
+  'prov.modo.round_robin': { pt: 'Rodízio', en: 'Round robin' },
+  'prov.ordem': { pt: 'Ordem da cadeia', en: 'Chain order' },
+  'prov.ordem.fixed': {
+    pt: 'Esta é a ordem exata de tentativa. Use as setas para reorganizar.',
+    en: 'This is the exact attempt order. Use the arrows to rearrange it.'
+  },
+  'prov.ordem.round_robin': {
+    pt: 'O rodízio percorre este anel e avança depois de cada tentativa.',
+    en: 'Round robin follows this ring and advances after each attempt.'
+  },
+  'prov.na_cadeia': { pt: 'Na sua cadeia', en: 'In your chain' },
+  'prov.catalogo': { pt: 'Catálogo completo', en: 'Full catalog' },
+  'prov.voltar_ordem': { pt: 'Voltar à ordem', en: 'Back to order' },
+  'prov.vazio': {
+    pt: 'Nenhum provedor na sua cadeia. Abra o catálogo para escolher.',
+    en: 'No provider in your chain. Open the catalog to choose one.'
+  },
   'prov.ultimo': {
     pt: 'Se todos falharem, ninguém assume o lugar deles: o RobinBandit devolve um aviso dizendo que nenhum provedor respondeu. Isso não é um provedor de reserva, e por isso não aparece em nenhum tier.',
     en: 'If they all fail, nobody takes their place: RobinBandit returns a notice saying no provider answered. That is not a backup provider, which is why it shows up in no tier.'
@@ -55,8 +79,8 @@ const TEXTOS = {
   /* --- tela: credenciais --- */
   'cred.titulo': { pt: 'Contas e credenciais', en: 'Accounts and credentials' },
   'cred.intro': {
-    pt: 'A chave que você colar aqui vai para o cofre desta máquina, com permissão 0600, e nunca volta na resposta — nem o começo, nem o fim. Um provedor pode ter mais de uma conta, e o rotador alterna entre elas quando uma bate a cota.',
-    en: 'A key pasted here goes into this machine’s vault with 0600 permissions, and never comes back in a response — not the start of it, not the end. A provider can have more than one account, and the rotator alternates between them when one hits its quota.'
+    pt: 'A chave que você colar aqui vai para o cofre desta máquina, com permissão 0600. Ela nunca volta na resposta, nem mesmo parcialmente. Um provedor pode ter mais de uma conta, e o rotador alterna entre elas quando uma bate a cota.',
+    en: 'A key pasted here goes into this machine’s vault with 0600 permissions. It never comes back in a response, even partially. A provider can have more than one account, and the rotator alternates between them when one hits its quota.'
   },
   'cred.so_ambiente': { pt: 'Chaves que estão só no ambiente', en: 'Keys that live only in the environment' },
   'cred.copie_1': {
@@ -70,31 +94,40 @@ const TEXTOS = {
   'cred.trazer':     { pt: 'trazer para o cofre',   en: 'bring into the vault' },
   'cred.add_conta':  { pt: 'Adicionar outra conta', en: 'Add another account' },
   'cred.add_intro': {
-    pt: 'Mesma conta do provedor com outra chave, ou uma segunda conta sua. O nome da variável é escolha sua — é por ele que a chave é guardada.',
-    en: 'The same provider account with another key, or a second account of yours. The variable name is your call — it is what the key is stored under.'
+    pt: 'Mesma conta do provedor com outra chave, ou uma segunda conta sua. A chave é guardada pelo nome de variável que você escolher.',
+    en: 'The same provider account with another key, or a second account of yours. The key is stored under the variable name you choose.'
   },
   'cred.paga':       { pt: 'crédito pago', en: 'paid credit' },
   'cred.criar':      { pt: 'criar conta',  en: 'create account' },
   'cred.apelido':    { pt: 'apelido, ex.: groq-2', en: 'label, e.g. groq-2' },
+  'cred.reforcado':    { pt: 'Reforçado', en: 'Reinforced' },
+  'cred.ref_desc': {
+    pt: 'Tenta estas contas na ordem antes da rota normal. Você pode misturar assinaturas, créditos e contas gratuitas.',
+    en: 'Tries these accounts in order before the normal route. You can mix subscriptions, credits and free accounts.'
+  },
+  'cred.ref_header': {
+    pt: 'Qualquer cliente HTTP pode pedir esta rota com',
+    en: 'Any HTTP client can request this route with'
+  },
 
   /* --- tela: janelas --- */
   'jan.titulo': { pt: 'Janelas de assinatura', en: 'Subscription windows' },
   'jan.intro': {
-    pt: 'Assinatura não fica lenta quando o uso acaba: ela para, e volta numa hora que dá para saber. Aqui está quanto falta para o bloco de cada uma virar — o suficiente para decidir entre esperar e trocar de provedor.',
-    en: 'A subscription does not get slow when usage runs out: it stops, and comes back at a knowable time. Here is how long until each block turns over — enough to decide between waiting and switching providers.'
+    pt: 'Assinatura não fica lenta quando o uso acaba: ela para e volta numa hora previsível. Veja quanto falta para decidir entre esperar e trocar de provedor.',
+    en: 'A subscription does not get slow when usage runs out: it stops and returns at a predictable time. See how long remains before choosing whether to wait or switch providers.'
   },
 
   /* --- tela: uso --- */
-  'uso.titulo': { pt: 'Tokens gastos', en: 'Tokens spent' },
+  'uso.titulo': { pt: 'Uso e custo', en: 'Usage and cost' },
   'uso.intro': {
-    pt: 'Cada provedor já informa quanto custou a resposta, e esse número era usado para decidir dentro do turno e descartado em seguida. Aqui ele fica: um quadrado por dia, mais escuro nos dias em que você gastou mais.',
-    en: 'Every provider already reports what a response cost, and that number used to be read within the turn and thrown away. Here it stays: one square per day, darker on the days you spent more.'
+    pt: 'Acompanhe chamadas, tokens de entrada e saída e o custo informado pelo provedor.',
+    en: 'Track calls, input and output tokens, and costs reported by the provider.'
   },
   'uso.ano':         { pt: 'Seu ano',          en: 'Your year' },
   'uso.por_provedor': { pt: 'Abrir por provedor', en: 'Break down by provider' },
   'uso.moeda': {
-    pt: 'Em tokens, não em reais: preço muda por modelo, por região e por promoção, e um custo calculado com tabela velha dá a confiança de um número exato sobre um palpite desatualizado.',
-    en: 'In tokens, not currency: prices change by model, by region and by promotion, and a cost computed from a stale table lends the confidence of an exact number to an out-of-date guess.'
+    pt: 'O custo só aparece quando o provedor o informa. Ausência de preço não significa uso grátis.',
+    en: 'Cost only appears when the provider reports it. Missing pricing does not mean free usage.'
   },
 
   /* --- tela: conectar --- */
@@ -104,39 +137,41 @@ const TEXTOS = {
     en: 'Any tool that lets you change the API address starts routing through here. Copy the configuration for yours and paste it where it says. In the'
   },
   'con.intro_2': {
-    pt: 'vai um apelido do seu trabalho — "codigo", "revisao" — e o RobinBandit aprende separado para cada um.',
-    en: 'field goes a nickname for your work — "code", "review" — and RobinBandit learns separately for each one.'
+    pt: 'vai um apelido do seu trabalho, como "codigo" ou "revisao". O RobinBandit aprende separado para cada um.',
+    en: 'field goes a nickname for your work, such as "code" or "review". RobinBandit learns separately for each one.'
   },
+  'con.copiar': { pt: 'Copiar', en: 'Copy' },
+  'con.copiado': { pt: 'Copiado', en: 'Copied' },
 
   /* --- primeiros passos (so aparece antes da primeira chamada) --- */
   'inicio.titulo': {
-    pt: 'Três passos e ele começa a aprender',
-    en: 'Three steps and it starts learning'
+    pt: 'Antes da primeira chamada',
+    en: 'Before the first call'
   },
-  'inicio.p1.titulo': { pt: 'Provedores de pé', en: 'Providers up' },
+  'inicio.p1.titulo': { pt: 'Quem pode responder', en: 'Who can answer' },
   'inicio.p1.feito': {
-    pt: '{n} no ar. Quem não tem chave no ambiente fica de fora — é o esperado.',
-    en: '{n} up. Anyone without a key in the environment stays out — that is expected.'
+    pt: '{quem} já estão disponíveis como provedores.',
+    en: '{quem} are already available as providers.'
   },
   'inicio.p1.falta': {
     pt: 'Nenhum subiu. Cadastre uma chave em Credenciais, ou instale o Claude Code / Codex para usar pela assinatura.',
     en: 'None came up. Add a key under Credentials, or install Claude Code / Codex to use them through your subscription.'
   },
-  'inicio.p2.titulo': { pt: 'Apontar seu agente para cá', en: 'Point your agent here' },
+  'inicio.p2.titulo': { pt: 'Escolha quem envia os pedidos', en: 'Choose who sends requests' },
   'inicio.p2.texto': {
-    pt: 'A aba Conectar entrega a configuração pronta para Claude Code, Codex, Cline, OpenCode ou curl. Copie e cole onde ela indica.',
-    en: 'The Connect tab hands you ready-made configuration for Claude Code, Codex, Cline, OpenCode or curl. Copy it and paste where it says.'
+    pt: 'O login do Claude Code e do ChatGPT Codex permite que eles respondam. Para rotear chamadas, ainda falta configurar um cliente na aba Conectar.',
+    en: 'Claude Code and ChatGPT Codex login lets them answer. To route calls, configure a client in the Connect tab.'
   },
   'inicio.p2.feito': {
     pt: '{quem} já chamou. A fila abaixo passa a mostrar as decisões.',
     en: '{quem} has called through. The queue below starts showing the decisions.'
   },
-  'inicio.p3.titulo': { pt: 'Usar', en: 'Use it' },
+  'inicio.p3.titulo': { pt: 'Faça uma chamada', en: 'Make one call' },
   'inicio.p3.texto': {
     pt: 'A partir da primeira chamada, esta tela mostra quem está na frente e por quê. Antes disso não há o que mostrar.',
     en: 'From the first call on, this screen shows who is ahead and why. Before that there is nothing to show.'
   },
-  'inicio.ir_conectar': { pt: 'Abrir a aba Conectar', en: 'Open the Connect tab' },
+  'inicio.ir_conectar': { pt: 'Configurar um cliente', en: 'Configure a client' },
 
   /* --- comuns --- */
   'comum.lendo':      { pt: 'lendo…',      en: 'reading…' },

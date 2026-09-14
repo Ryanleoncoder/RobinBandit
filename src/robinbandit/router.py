@@ -155,8 +155,8 @@ class ProviderRouter:
         self._weights_by_context = weights or {}
         self._inflight: Dict[str, int] = {}
         self._strategy = str(strategy or "adaptive").lower()
-        if self._strategy not in {"adaptive", "tier"}:
-            raise ValueError("strategy deve ser adaptive ou tier")
+        if self._strategy not in {"adaptive", "tier", "fixed", "round_robin"}:
+            raise ValueError("strategy deve ser adaptive, tier, fixed ou round_robin")
         self._cost_penalties = dict(cost_penalties or {})
         self._profiles = dict(profiles or {})
 
@@ -558,6 +558,23 @@ class ProviderRouter:
         with self._lock:
             now = time.time()
             selected = coerce_selection(selection)
+            # A lista recebida já está na ordem configurada da cadeia. No modo
+            # fixo ela é a decisão; no round-robin ela é o anel. O cursor é
+            # derivado de chamadas concluídas, não de quantas vezes alguém
+            # abriu o painel (o painel também consulta `order`).
+            posicao = {
+                getattr(p, "name", type(p).__name__): indice
+                for indice, p in enumerate(providers)
+            }
+            tentativas = sum(
+                stat.ok + stat.err for nome, stat in self._stats.items()
+                if nome != self._last_resort
+            )
+            tamanho_anel = max(1, len([
+                p for p in providers
+                if getattr(p, "name", type(p).__name__) != self._last_resort
+            ]))
+            cursor = tentativas % tamanho_anel
 
             def rank(p) -> Tuple[int, int, int, int, float]:
                 key = getattr(p, "name", type(p).__name__)
@@ -566,6 +583,11 @@ class ProviderRouter:
                 s = self._stat(key)
                 cooled = 1 if s.cooldown_until > now else 0
                 pinned = 0 if selected.provider == key else 1
+                if self._strategy == "fixed":
+                    return (cooled, pinned, posicao[key], 0, 0.0)
+                if self._strategy == "round_robin":
+                    girada = (posicao[key] - cursor) % tamanho_anel
+                    return (cooled, pinned, girada, 0, 0.0)
                 tier = self._tier(key)
                 tier_bucket = tier if self._strategy == "tier" and selected.provider is None else 0
                 profile_bucket = self._profile_bucket(key, context)

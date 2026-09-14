@@ -76,12 +76,13 @@ def para_mensagens(
     return saida
 
 
-def resposta(texto: str, modelo: Optional[str] = None) -> Dict[str, Any]:
+def resposta(texto: str, modelo: Optional[str] = None,
+             uso: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """A resposta no formato que o cliente Anthropic espera.
 
-    `usage` vai com zeros porque o Robin não conta token — e aqui, ao contrário
-    do endpoint OpenAI, o campo não é opcional: o SDK da Anthropic lê
-    `usage.input_tokens` direto e quebra se ele não existir.
+    O campo não é opcional: o SDK da Anthropic lê `usage.input_tokens`
+    diretamente. Quando o provedor não informa, mantemos zeros; quando informa,
+    devolvemos a contagem real que também abastece o painel.
     """
     return {
         "id": f"msg_{uuid.uuid4().hex[:24]}",
@@ -91,7 +92,10 @@ def resposta(texto: str, modelo: Optional[str] = None) -> Dict[str, Any]:
         "content": [{"type": "text", "text": texto}],
         "stop_reason": "end_turn",
         "stop_sequence": None,
-        "usage": {"input_tokens": 0, "output_tokens": 0},
+        "usage": {
+            "input_tokens": int((uso or {}).get("entrada") or 0),
+            "output_tokens": int((uso or {}).get("saida") or 0),
+        },
         "created": int(time.time()),
     }
 
