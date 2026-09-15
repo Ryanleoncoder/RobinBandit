@@ -45,7 +45,7 @@ def pasta_do_painel() -> Path:
     precisa receber a página junto, e `package-data` no pyproject é o que
     carrega os dois.
     """
-    return Path(__file__).resolve().parent / "assets" / "painel"
+    return Path(__file__).resolve().parent.parent / "assets" / "painel"
 
 
 def _ler(nome: str) -> str:

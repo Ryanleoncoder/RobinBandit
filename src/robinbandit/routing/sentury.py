@@ -5,7 +5,7 @@ import logging
 import time
 from typing import Callable, Dict, List, Optional
 
-from .profiles import preferred_model_for
+from ..catalog.profiles import preferred_model_for
 
 logger = logging.getLogger(__name__)
 
@@ -159,8 +159,8 @@ class ChainProvider:
         if not self.providers:
             raise ValueError("ChainProvider precisa de pelo menos um provedor")
         if router is None:
-            from .config import RobinConfig
-            from .gateway import RobinGateway
+            from ..config import RobinConfig
+            from ..gateway import RobinGateway
             names = {
                 getattr(provider, "name", type(provider).__name__): {}
                 for provider in self.providers

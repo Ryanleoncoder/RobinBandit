@@ -1,7 +1,7 @@
 """ProviderRouter: cooldown, ordenação por score, bandit e persistência."""
 from robinbandit import ProviderRouter
 from robinbandit import RouteSelection
-from robinbandit.router import _Stat
+from robinbandit.routing.router import _Stat
 
 PRIORS = {
     "groq": {"tier": 1, "quality": 0.75},
@@ -160,7 +160,7 @@ def test_weights_do_chamador_valem():
 
 
 def test_context_sem_peso_definido_usa_equilibrado():
-    from robinbandit.router import _DEFAULT_WEIGHTS
+    from robinbandit.routing.router import _DEFAULT_WEIGHTS
     r = ProviderRouter(PRIORS, weights={"critico": (0.6, 0.15, 0.25)})
     assert r._weights("nao-mapeado") == _DEFAULT_WEIGHTS
     assert r._weights(None) == _DEFAULT_WEIGHTS
@@ -332,7 +332,7 @@ def test_aliases_sentury_reforcado_e_dedicado():
 
 
 def test_override_de_tier_do_painel_muda_o_roteamento(monkeypatch):
-    from robinbandit import account_config
+    from robinbandit.accounts import account_config
 
     monkeypatch.setattr(account_config, "overrides_de_tier", lambda: {"paid": 1, "free": 3})
     r = ProviderRouter(

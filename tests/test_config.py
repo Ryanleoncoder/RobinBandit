@@ -84,7 +84,7 @@ def test_factory_monta_provider_por_referencia_sem_expor_segredo():
 
 def test_endpoint_anonimo_exige_escolha_explicita(monkeypatch, tmp_path):
     """Nao ter chave nao autoriza ligar um servico remoto automaticamente."""
-    from robinbandit import account_config
+    from robinbandit.accounts import account_config
     from robinbandit import providers as provider_factory
 
     monkeypatch.setenv("ROBINBANDIT_ACCOUNTS_PATH", str(tmp_path / "contas.json"))
@@ -131,11 +131,11 @@ def test_factory_nao_cria_provider_remoto_sem_chave(monkeypatch):
 
 
 def test_factory_codex_depende_do_login_sem_expor_token(monkeypatch):
-    from robinbandit.codex_provider import CodexAuthStatus, CodexProvider
+    from robinbandit.providers.codex_provider import CodexAuthStatus, CodexProvider
 
     config = RobinConfig.from_yaml(ROOT / "config" / "sentury.yaml")
     monkeypatch.setattr(
-        "robinbandit.codex_provider.codex_auth_status",
+        "robinbandit.providers.codex_provider.codex_auth_status",
         lambda binary: CodexAuthStatus(True, "codex_cli", "autenticado"),
     )
 
@@ -166,7 +166,7 @@ def test_yaml_recusa_segredo_literal():
 
 
 def test_conta_escolhida_muda_o_dedicado_em_runtime(tmp_path, monkeypatch):
-    from robinbandit import account_config, secrets
+    from robinbandit.accounts import account_config, secrets
 
     monkeypatch.setenv("ROBINBANDIT_ACCOUNTS_PATH", str(tmp_path / "accounts.json"))
     monkeypatch.setenv("ROBINBANDIT_VAULT_PATH", str(tmp_path / "vault.json"))
@@ -205,8 +205,8 @@ def test_dedicado_sem_credencial_nao_vira_router(monkeypatch, tmp_path):
 
 @pytest.mark.asyncio
 async def test_dedicado_indisponivel_termina_sem_chamar_fallback(monkeypatch, tmp_path):
-    from robinbandit.groq_provider import FallbackProvider
-    from robinbandit.sentury import ChainProvider, clear_ultra_provider, use_ultra_provider
+    from robinbandit.providers.groq_provider import FallbackProvider
+    from robinbandit.routing.sentury import ChainProvider, clear_ultra_provider, use_ultra_provider
 
     monkeypatch.setenv("ROBINBANDIT_ACCOUNTS_PATH", str(tmp_path / "accounts.json"))
     monkeypatch.setenv("ROBINBANDIT_VAULT_PATH", str(tmp_path / "vault.json"))
@@ -229,8 +229,8 @@ async def test_dedicado_indisponivel_termina_sem_chamar_fallback(monkeypatch, tm
 
 @pytest.mark.asyncio
 async def test_reforcado_indisponivel_cai_para_router(monkeypatch, tmp_path):
-    from robinbandit.groq_provider import FallbackProvider
-    from robinbandit.sentury import ChainProvider, clear_ultra_provider, use_ultra_provider
+    from robinbandit.providers.groq_provider import FallbackProvider
+    from robinbandit.routing.sentury import ChainProvider, clear_ultra_provider, use_ultra_provider
 
     monkeypatch.setenv("ROBINBANDIT_ACCOUNTS_PATH", str(tmp_path / "accounts.json"))
     monkeypatch.setenv("ROBINBANDIT_VAULT_PATH", str(tmp_path / "vault.json"))

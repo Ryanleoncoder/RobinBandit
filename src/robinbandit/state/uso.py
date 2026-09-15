@@ -1,16 +1,4 @@
-"""Uso de tokens e custo informado, por dia e por provedor.
-
-Cada provedor já devolve ``last_usage`` e a cadeia soma o turno inteiro. O
-número existia, era usado para decidir dentro do turno e depois era descartado.
-Agora ele fica disponível no painel. O custo também é preservado quando a
-resposta do provedor o informa; caso contrário, aparece como desconhecido.
-
-Um dia é uma linha por provedor. Um ano cabe em alguns KB, e o arquivo é do
-dono da máquina: o gasto dele não viaja no clone.
-
-Não mantemos uma tabela local de preços. Preço muda por modelo, região e
-promoção, e um valor calculado com tabela velha daria precisão falsa.
-"""
+"""Uso de tokens e custo informado, por dia e por provedor."""
 from __future__ import annotations
 
 import json
@@ -25,8 +13,7 @@ logger = logging.getLogger(__name__)
 
 ARQUIVO = "uso.json"
 
-# Um ano, que é o recorte do gráfico de contribuições e o horizonte em que a
-# pergunta "gastei mais este ano?" faz sentido.
+# Horizonte do calendário de uso.
 DIAS_GUARDADOS = 365
 
 _LOCK = threading.RLock()
@@ -96,7 +83,7 @@ def registrar(provedor: str, uso: Optional[Dict[str, Any]]) -> None:
             linha["custo_usd"] = float(linha.get("custo_usd") or 0) + custo_usd
             linha["chamadas_com_custo"] = int(linha.get("chamadas_com_custo") or 0) + 1
 
-        # Poda aqui: sem isto o arquivo cresce para sempre, um dia por vez.
+        # Mantém o arquivo limitado ao horizonte configurado.
         if len(dados) > DIAS_GUARDADOS:
             for velho in sorted(dados)[:-DIAS_GUARDADOS]:
                 dados.pop(velho, None)
@@ -112,11 +99,7 @@ def _dias(quantos: int) -> List[str]:
 
 
 def calendario(dias: int = DIAS_GUARDADOS, provedor: str = "") -> List[Dict[str, Any]]:
-    """Um quadrado por dia, do mais antigo para o mais novo.
-
-    Dia sem chamada entra com zero em vez de sumir: um calendário com buracos
-    não se lê como calendário.
-    """
+    """Um ponto por dia, do mais antigo para o mais novo."""
     dados = _ler()
     alvo = str(provedor or "").strip().lower()
     saida = []
@@ -124,9 +107,27 @@ def calendario(dias: int = DIAS_GUARDADOS, provedor: str = "") -> List[Dict[str,
         linhas = dados.get(dia) or {}
         if alvo:
             linhas = {alvo: linhas[alvo]} if alvo in linhas else {}
+        entrada = sum(int(l.get("entrada", 0)) for l in linhas.values())
+        saida_tokens = sum(int(l.get("saida", 0)) for l in linhas.values())
         total = sum(int(l.get("total", 0)) for l in linhas.values())
+        cacheado = sum(int(l.get("cacheado", 0)) for l in linhas.values())
         chamadas = sum(int(l.get("chamadas", 0)) for l in linhas.values())
-        saida.append({"dia": dia, "total": total, "chamadas": chamadas})
+        chamadas_com_custo = sum(
+            int(l.get("chamadas_com_custo", 0)) for l in linhas.values()
+        )
+        custo_usd = round(
+            sum(float(l.get("custo_usd", 0) or 0) for l in linhas.values()), 6
+        )
+        saida.append({
+            "dia": dia,
+            "entrada": entrada,
+            "saida": saida_tokens,
+            "total": total,
+            "cacheado": cacheado,
+            "chamadas": chamadas,
+            "custo_usd": custo_usd,
+            "chamadas_com_custo": chamadas_com_custo,
+        })
     return saida
 
 

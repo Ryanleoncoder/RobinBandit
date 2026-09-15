@@ -5,8 +5,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from .config import RobinConfig
-from .router import ProviderRouter
-from .selection import RouteSelection
+from .routing.router import ProviderRouter
+from .routing.selection import RouteSelection
 
 
 class RobinGateway:
@@ -130,13 +130,13 @@ class RobinGateway:
 
     def gravar_aprendizado(self) -> bool:
         """Guarda o que foi medido nesta maquina."""
-        from . import estado
+        from .state import estado
 
         return estado.salvar(self.dump())
 
     def recuperar_aprendizado(self) -> bool:
         """Recarrega o que foi medido antes, se ainda valer. Devolve se achou."""
-        from . import estado
+        from .state import estado
 
         guardado = estado.carregar()
         if not guardado:
@@ -147,7 +147,7 @@ class RobinGateway:
     def esquecer_aprendizado(self) -> bool:
         """Apaga o que foi medido. Para quando as chaves ou os planos mudaram
         e o que foi medido antes passou a descrever outro mundo."""
-        from . import estado
+        from .state import estado
 
         self.reset()
         return estado.esquecer()

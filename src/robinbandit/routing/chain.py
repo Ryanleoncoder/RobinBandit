@@ -9,19 +9,12 @@ from .selection import coerce_selection
 
 logger = logging.getLogger(__name__)
 
-# Tokens somados do turno inteiro. O host zera no comeco e le no fim: cada
-# turno chama varios motores (classificador, planner, responder) e o custo e
-# a soma deles, nao o da ultima chamada.
+# Uso agregado do turno inteiro.
 _USO_DO_TURNO: contextvars.ContextVar = contextvars.ContextVar("robin_uso_do_turno", default=None)
 
 
 def suporta_ferramentas(provider) -> bool:
-    """Diz se o adaptador preserva chamadas estruturadas de ferramenta.
-
-    Adaptadores internos podem declarar ``supports_tools`` explicitamente.
-    Para integrações de terceiros, a assinatura continua sendo uma forma
-    segura de descoberta: aceitar ``tools`` ou ``**kwargs`` conta como suporte.
-    """
+    """Diz se o adaptador preserva chamadas estruturadas de ferramenta."""
     declarado = getattr(provider, "supports_tools", None)
     if declarado is not None:
         return bool(declarado)
@@ -44,8 +37,7 @@ def iniciar_contagem() -> None:
 
 def contagem_do_turno():
     uso = _USO_DO_TURNO.get()
-    # `cacheado: 0` seria ambiguo: pode ser "nenhum acerto de cache" ou "o
-    # provedor nao informa". Quando nao ha o que dizer, o campo nao aparece.
+    # Omite campos que o provedor não informou.
     if isinstance(uso, dict):
         ocultos = set()
         if not uso.get("cacheado"):
@@ -77,14 +69,9 @@ def _somar(uso) -> None:
 
 
 def _anotar_o_gasto(provedor: str, uso) -> None:
-    """O token já estava contado; só não sobrevivia ao turno.
-
-    Sem isto, "quanto gastei este mês e com quem" não tinha resposta em lugar
-    nenhum — o número existia, era usado para decidir dentro do turno e jogado
-    fora em seguida.
-    """
+    """Persiste uso agregado para o painel."""
     try:
-        from . import uso as _uso
+        from ..state import uso as _uso
 
         _uso.registrar(provedor, uso)
     except Exception:
@@ -104,37 +91,17 @@ def classify_error(exc: Exception) -> str:
 
 
 class ChainProvider:
-    """Encadeia provedores de LLM e tenta cada um até um responder.
-
-    A ORDEM não é fixa: o router reordena a cada request por saúde, latência e
-    qualidade-por-context, e joga quem está em cooldown pro fim. Num 429, faz
-    UM retry curto no mesmo provedor antes de cascatear.
-
-    Cada provedor precisa de um `complete(messages, temperature)` async, que
-    pode aceitar `context` por keyword, e opcionalmente expor `name`,
-    `last_model` e `last_quota`. `cache`, se passado, precisa de `get`/`set`
-    async — mesma entrada devolve a mesma saída sem tocar em provedor nenhum.
-
-    O contexto é uma string opaca sua: tipo de tarefa, tier do modelo, tenant.
-    O router indexa o aprendizado por ela e o provedor a recebe se aceitar.
-
-    Depois de `complete`, `last_provider` diz qual provedor respondeu — é a chave
-    a passar para `reward_quality`. Como são atributos de instância, uma cadeia
-    compartilhada entre requests concorrentes embaralha os dois; sob
-    concorrência, use uma cadeia por request (a construção é barata).
-
-    Se o último provedor da cadeia nunca lança (um fallback local), o chamador
-    nunca vê exceção por falha de LLM.
-    """
+    """Encadeia provedores e tenta cada um até obter resposta."""
 
     _RATE_LIMIT_RETRIES = 1
     _RATE_LIMIT_BACKOFF = 1.5  # segundos
 
-    def __init__(self, providers: List, router, cache=None):
+    def __init__(self, providers: List, router, cache=None, activity=None):
         self.providers = [p for p in providers if p is not None]
         if not self.providers:
             raise ValueError("ChainProvider precisa de pelo menos um provedor")
         self.router = router
+        self.activity = activity
         self._last_model = contextvars.ContextVar(f"robin_last_model_{id(self)}", default=None)
         self._last_provider = contextvars.ContextVar(f"robin_last_provider_{id(self)}", default=None)
         self._last_usage = contextvars.ContextVar(f"robin_last_usage_{id(self)}", default=None)
@@ -177,11 +144,7 @@ class ChainProvider:
 
     @staticmethod
     def exigencias(messages: List[Dict[str, Any]]) -> set:
-        """Le do proprio conteudo o que o turno exige do provedor.
-
-        Uma imagem no meio das mensagens ja e a declaracao de que so quem
-        enxerga serve; nao depende de alguem lembrar de passar a flag.
-        """
+        """Lê do conteúdo o que o turno exige do provedor."""
         for mensagem in messages or []:
             if mensagem.get("imagens"):
                 return {"vision"}
@@ -195,12 +158,7 @@ class ChainProvider:
 
     @staticmethod
     def para_provedor(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """Ponto unico onde a imagem anexada vira conteudo multimodal.
-
-        No historico a mensagem continua sendo texto com as imagens num campo
-        proprio: titulo, busca e resumo continuam lendo string, e so o payload
-        que sai para o provedor carrega o formato multimodal.
-        """
+        """Converte anexos locais para payload multimodal do provedor."""
         saida: List[Dict[str, Any]] = []
         for mensagem in messages or []:
             imagens = mensagem.get("imagens")
@@ -264,11 +222,12 @@ class ChainProvider:
             pname = getattr(provider, "name", type(provider).__name__)
             for tentativa in range(self._RATE_LIMIT_RETRIES + 1):
                 inicio = time.perf_counter()
+                evento = self.activity.abrir(
+                    pname, context, modo=selected.mode, tentativa=tentativa + 1,
+                ) if self.activity is not None else None
                 self.router.begin(pname)
                 try:
-                    # Checar a assinatura em vez de tentar-e-cair-no-TypeError:
-                    # um TypeError vindo de dentro do provedor faria a chamada
-                    # ser repetida, gastando cota duas vezes.
+                    # Evita repetir chamada por TypeError interno do provedor.
                     parametros = inspect.signature(provider.complete).parameters
                     accepts_any = any(p.kind is p.VAR_KEYWORD for p in parametros.values())
                     kwargs = {}
@@ -292,13 +251,9 @@ class ChainProvider:
                     result = await provider.complete(messages, temperature, **kwargs)
                     latency_ms = (time.perf_counter() - inicio) * 1000.0
                     self.last_model = getattr(provider, "last_model", type(provider).__name__)
-                    # Um Reforçado pode conter várias contas. Preserve quem de
-                    # fato respondeu para uso e feedback, sem deixar de medir o
-                    # bloco Reforçado como uma decisão do router.
+                    # Preserva a conta real que respondeu dentro do Reforçado.
                     efetivo = getattr(provider, "last_provider", None) or pname
                     self.last_provider = efetivo
-                    # Tokens de quem respondeu: quem chama nao precisa saber
-                    # qual provedor foi para contar o custo do turno.
                     self.last_usage = getattr(provider, "last_usage", None)
                     self.last_tool_calls = getattr(provider, "last_tool_calls", None)
                     _somar(self.last_usage)
@@ -311,13 +266,31 @@ class ChainProvider:
                         self.router.record_quota(pname, quota.get("rpm"), quota.get("rpd"))
                     if self.cache is not None and not tools:
                         await self.cache.set(messages, temperature, context, result)
+                    if evento:
+                        self.activity.concluir(
+                            evento,
+                            status="sucesso",
+                            provedor=efetivo,
+                            modelo=self.last_model,
+                            duracao_ms=latency_ms,
+                            uso=self.last_usage,
+                        )
                     return result
                 except Exception as exc:
+                    latency_ms = (time.perf_counter() - inicio) * 1000.0
                     last_error = exc
                     failed_models = list(dict.fromkeys(getattr(provider, "model_failures", []) or []))
                     for failed_model in failed_models:
                         self.router.record_model_failure(pname, failed_model)
                     tipo = classify_error(exc)
+                    if evento:
+                        self.activity.concluir(
+                            evento,
+                            status="falha",
+                            modelo=getattr(provider, "last_attempted_model", None),
+                            duracao_ms=latency_ms,
+                            motivo=tipo,
+                        )
                     if tipo == "rate_limit" and tentativa < self._RATE_LIMIT_RETRIES:
                         espera = self._RATE_LIMIT_BACKOFF * (tentativa + 1)
                         logger.warning("Provedor %s em rate-limit (429); aguardando %.1fs e 1 retry...", pname, espera)

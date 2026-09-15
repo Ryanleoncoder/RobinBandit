@@ -3,7 +3,7 @@ from typing import Dict, List, Optional, Tuple
 
 import httpx
 
-from .token_budget import model_token_budget
+from ..catalog.token_budget import model_token_budget
 
 logger = logging.getLogger(__name__)
 
@@ -68,8 +68,7 @@ class ClaudeProvider:
         self.models = models or ["claude-sonnet-4-6"]
         self.last_model: Optional[str] = None
         self.last_reasoning_summary: Optional[str] = None
-        # Sem isto o turno atendido pela Anthropic aparecia com zero token: o
-        # chain le `last_usage` de todo provedor, e este nao publicava nenhum.
+        # Uso do último turno para contabilidade do painel.
         self.last_usage: Optional[Dict[str, int]] = None
 
     async def complete(self, messages: List[Dict[str, str]], temperature: float = 0.2,

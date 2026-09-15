@@ -18,13 +18,7 @@ def caminho_do_usuario() -> Path:
 
 
 def _fundir(base: Any, novo: Any) -> Any:
-    """Mapa dentro de mapa se funde; o resto o usuario substitui inteiro.
-
-    Trocar `providers` inteiro por causa de um endpoint seria hostil, mas
-    fundir LISTA nao: quem escreve `chain_order` esta dizendo a ordem que
-    quer, e mesclar com a de fabrica produziria uma terceira ordem que
-    ninguem pediu.
-    """
+    """Funde mapas recursivamente; outros tipos substituem o valor inteiro."""
     if isinstance(base, Mapping) and isinstance(novo, Mapping):
         saida = dict(base)
         for chave, valor in novo.items():
@@ -33,26 +27,17 @@ def _fundir(base: Any, novo: Any) -> Any:
     return novo
 
 
-# Nome reservado para o catalogo que vem dentro do pacote. Quem escreve
-# `herda: padrao` quer os 40+ provedores de fabrica sem copia-los.
+# Nome reservado para o catálogo empacotado.
 CATALOGO_DE_FABRICA = "padrao"
 
 
 def caminho_do_catalogo() -> Path:
-    """O catalogo de fabrica, dentro do pacote — nao ao lado dele.
-
-    Antes ele morava em `config/` na raiz do repositorio, o que funcionava para
-    quem clonava e deixava quem instalava pelo pip sem catalogo nenhum.
-    """
+    """Catálogo de fábrica empacotado."""
     return Path(__file__).resolve().parent / "padrao.yaml"
 
 
 def _resolver_heranca(raw: Mapping[str, Any], origem: Path) -> Mapping[str, Any]:
-    """Aplica `herda:` — o arquivo do agente e o que MUDA, nao uma copia.
-
-    Sem isto, cada agente hospedeiro versionava as 700 linhas do catalogo
-    inteiro e as copias envelheciam em ritmos diferentes.
-    """
+    """Aplica `herda:`/`extends` antes de normalizar a configuração."""
     pai = raw.get("herda") or raw.get("extends")
     if not pai:
         return raw
@@ -77,12 +62,7 @@ def _resolver_heranca(raw: Mapping[str, Any], origem: Path) -> Mapping[str, Any]
 
 
 def _com_override_do_usuario(raw: Mapping[str, Any]) -> Mapping[str, Any]:
-    """Aplica `~/.robinbandit/config.yaml` por cima do que veio no repo.
-
-    O que vem versionado sao os PADROES — inclusive os priors de qualidade e
-    tier. O que e desta maquina (endpoint local, chave, ordem preferida) fica
-    fora do repositorio, sem exigir um fork para mudar uma linha.
-    """
+    """Aplica `~/.robinbandit/config.yaml` por cima da configuração base."""
     caminho = caminho_do_usuario()
     if not caminho.exists():
         return raw
@@ -104,8 +84,6 @@ def _com_override_do_usuario(raw: Mapping[str, Any]) -> Mapping[str, Any]:
 class RobinConfig:
     version: int = 1
     agent_mode: str = "universal"
-    # Em que língua a interface responde. O YAML declara o padrão; a escolha
-    # feita no painel ou pela CLI é um override por cima, como tier e cadeia.
     # Vazio significa "descubra pelo sistema".
     idioma: str = ""
     providers: Dict[str, Dict[str, Any]] = field(default_factory=dict)
@@ -162,8 +140,6 @@ class RobinConfig:
             if "models" in item and not isinstance(item["models"], (list, tuple, Mapping)):
                 raise TypeError(f"providers.{key}.models deve ser lista ou mapa")
             auth_type = str(item.get("auth_type") or "").strip().lower()
-            # `claude_cli` e `codex_cli`: quem autentica e o CLI da assinatura,
-            # e o RobinBandit nunca toca na credencial.
             if auth_type and auth_type not in {"api_key", "codex_cli", "claude_cli"}:
                 raise ValueError(f"providers.{key}.auth_type desconhecido: {auth_type}")
             adapter = str(item.get("adapter") or "openai").strip().lower()
@@ -200,16 +176,14 @@ class RobinConfig:
             raise ValueError("routing.chain_order contém provedores duplicados")
         if last_resort and str(last_resort).strip().lower() not in providers:
             raise ValueError("routing.last_resort deve apontar para um provedor conhecido")
-        # Como reagir ao erro de um provedor: tabela, nao algoritmo. Aplicada
-        # no import para valer em todo mundo que ja tem a config carregada.
+        # Tabela de classificação de erro.
         erros = dict(routing.get("erros") or {})
-        from .erros import configurar as _configurar_erros
+        from .routing.erros import configurar as _configurar_erros
 
         _configurar_erros(erros)
 
-        # Sonda opcional de cota. Custa cota para medir cota, entao vem
-        # desligada: so compensa em provedor de assinatura com janela longa.
-        from .quota_ping import configurar as _configurar_ping
+        # Sonda opcional de cota.
+        from .catalog.quota_ping import configurar as _configurar_ping
 
         _configurar_ping(routing.get("quota_ping"))
 
@@ -260,8 +234,6 @@ class RobinConfig:
             if any(field in account for field in ("api_key", "secret", "token")):
                 raise ValueError("accounts guarda key_env, nunca segredo literal")
             auth_type = str(account.get("auth_type") or "").strip().lower()
-            # `claude_cli` e `codex_cli`: quem autentica e o CLI da assinatura,
-            # e o RobinBandit nunca toca na credencial.
             if auth_type and auth_type not in {"api_key", "codex_cli", "claude_cli"}:
                 raise ValueError(
                     f"accounts.items[{index}].auth_type desconhecido: {auth_type}"
@@ -291,12 +263,7 @@ class RobinConfig:
         )
 
     def provider_capabilities(self, key: str) -> set:
-        """O que este provedor sabe fazer alem de texto (ex.: `vision`).
-
-        Declarado no YAML, provedor a provedor. Sem declaracao, assume-se
-        somente texto: e melhor deixar um capaz de fora do que mandar uma
-        imagem para quem nao enxerga e receber um erro no meio do turno.
-        """
+        """Capacidades declaradas do provedor, além de texto."""
         spec = self.providers.get(str(key).lower()) or {}
         bruto = spec.get("capabilities") or []
         if isinstance(bruto, str):
@@ -304,11 +271,7 @@ class RobinConfig:
         return {str(item).strip().lower() for item in bruto if str(item).strip()}
 
     def provider_models(self, key: str, role: Optional[str] = None) -> List[str]:
-        """Lista canônica de modelos declarados para um provedor/papel.
-
-        Papéis como ``planner`` permitem que um agente use uma ordem diferente
-        sem voltar a espalhar listas de modelos pelo código do host.
-        """
+        """Modelos declarados para um provedor/papel."""
         spec = self.providers.get(str(key).lower()) or {}
         field_name = f"{str(role).strip().lower()}_models" if role else "models"
         raw = spec.get(field_name) or spec.get("models") or []

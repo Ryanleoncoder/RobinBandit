@@ -1,19 +1,9 @@
-/* As duas línguas em que o painel fala.
- *
- * A documentação virou bilíngue e a página do projeto está em inglês; quem
- * chegasse por lá instalava e encontrava a interface em português. O código e
- * os comentários continuam em português — isto é sobre o que o produto
- * responde, não sobre quem o mantém.
- *
- * Um arquivo só, com as duas línguas lado a lado: separar em `pt.js` e `en.js`
- * faria a tradução faltante virar arquivo silenciosamente incompleto, e aqui
- * uma chave sem par salta aos olhos na revisão.
- *
- * Acrescentar um idioma é acrescentar uma chave em cada entrada e o código em
- * `IDIOMAS` do `idioma.py`.
- */
+/* Textos do painel, com idiomas lado a lado para facilitar revisão. */
 const TEXTOS = {
   /* --- navegação --- */
+  'nav.operar':      { pt: 'Operar',       en: 'Operate' },
+  'nav.configurar':  { pt: 'Configurar',   en: 'Configure' },
+  'nav.integrar':    { pt: 'Integrar',     en: 'Integrate' },
   'nav.agora':       { pt: 'Agora',       en: 'Now' },
   'nav.provedores':  { pt: 'Provedores',  en: 'Providers' },
   'nav.modelos':     { pt: 'Modelos',     en: 'Models' },
@@ -29,6 +19,11 @@ const TEXTOS = {
     en: 'See who is available, which mode is active, and why the queue is in this order.'
   },
   'agora.fila':      { pt: 'A fila de agora',    en: 'The queue right now' },
+  'agora.atividade': { pt: 'Atividade recente',  en: 'Recent activity' },
+  'agora.atividade_nota': {
+    pt: 'Só metadados operacionais desta execução. Conversas não são guardadas aqui.',
+    en: 'Operational metadata from this run only. Conversations are not stored here.'
+  },
   'agora.credito':   { pt: 'Crédito restante',   en: 'Credit left' },
   'agora.30dias':    { pt: 'Últimos 30 dias',    en: 'Last 30 days' },
   'agora.sem_hist':  { pt: 'sem histórico ainda', en: 'no history yet' },
@@ -39,7 +34,20 @@ const TEXTOS = {
     pt: 'Escolha a política da fila. Os provedores disponíveis continuam protegidos por saúde e cooldown em todos os modos.',
     en: 'Choose the queue policy. Available providers remain protected by health and cooldown in every mode.'
   },
-  'prov.como_decidir': { pt: 'Rota normal', en: 'Normal route' },
+  'prov.como_decidir': { pt: 'Como a rota normal decide', en: 'How the normal route decides' },
+  'prov.rota_padrao': { pt: 'padrão', en: 'default' },
+  'prov.rota_opcional': { pt: 'por chamada', en: 'per request' },
+  'prov.normal': { pt: 'Normal', en: 'Normal' },
+  'prov.reforcado': { pt: 'Reforçado', en: 'Reinforced' },
+  'prov.ou': { pt: 'ou', en: 'or' },
+  'prov.normal_desc': {
+    pt: 'Toda chamada entra aqui. Você escolhe abaixo como ordenar a fila.',
+    en: 'Every request enters here. Choose below how the queue should be ordered.'
+  },
+  'prov.reforcado_desc': {
+    pt: 'Tenta sua lista preferida e, se ela falhar, volta para a rota normal.',
+    en: 'Tries your preferred list and returns to the normal route if it fails.'
+  },
   'prov.normal_header': {
     pt: 'Esta é a rota padrão, usada sem header ou com',
     en: 'This is the default route, used without a header or with'
@@ -218,9 +226,7 @@ const TEXTOS = {
   'tempo.h':         { pt: 'há {n}h',               en: '{n}h ago' }
 };
 
-/* O idioma que o servidor diz estar valendo. Fica aqui como padrão até a
- * primeira resposta de `config`; trocar sem recarregar a página é o mínimo que
- * se espera de um seletor de idioma. */
+/* Idioma inicial até a primeira resposta de `config`. */
 let IDIOMA = 'pt';
 
 function T(chave, campos) {
@@ -235,8 +241,7 @@ function T(chave, campos) {
   return texto;
 }
 
-/* Aplica a tradução em tudo que está marcado no HTML. Chamado na carga e a cada
- * troca de idioma. */
+/* Aplica tradução aos elementos marcados no HTML. */
 function traduzirPagina() {
   document.querySelectorAll('[data-t]').forEach(el => {
     el.textContent = T(el.dataset.t);

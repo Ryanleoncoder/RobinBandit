@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 from robinbandit import RobinConfig
-from robinbandit.claude_code_provider import (
+from robinbandit.providers.claude_code_provider import (
     ClaudeCodeError,
     ClaudeCodeProvider,
     _texto_das_mensagens,
@@ -73,7 +73,7 @@ def test_ferramentas_do_cli_ficam_desligadas():
 
 def test_fabrica_devolve_none_sem_cli(monkeypatch):
     """Sem o CLI ele fica fora da cadeia, em vez de falhar no meio do turno."""
-    import robinbandit.claude_code_provider as ccp
+    import robinbandit.providers.claude_code_provider as ccp
 
     monkeypatch.setattr(ccp, "resolve_claude_binary", lambda binary="claude": None)
     ccp._STATUS_CACHE.clear()
@@ -86,7 +86,7 @@ def test_erro_do_cli_nao_vira_resposta(monkeypatch):
     e o jeito mais silencioso de entregar lixo."""
     import subprocess
 
-    import robinbandit.claude_code_provider as ccp
+    import robinbandit.providers.claude_code_provider as ccp
 
     class Saida:
         stdout = json.dumps({"is_error": True, "result": "limite atingido"})

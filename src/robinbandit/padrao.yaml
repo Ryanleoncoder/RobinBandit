@@ -15,7 +15,7 @@ agent_mode: universal
 # recebe portugues sem configurar nada.
 #
 # Isto e o PADRAO. A escolha feita no painel, ou por `robinbandit language pt`,
-# fica em ~/.robinbandit/contas.json e vence o que estiver aqui, do mesmo jeito
+# fica em ~/.robinbandit/preferencias.json e vence o que estiver aqui, do mesmo jeito
 # que acontece com tier, modelos e cadeia.
 #
 # O codigo e os comentarios continuam em portugues; isto vale para o que a

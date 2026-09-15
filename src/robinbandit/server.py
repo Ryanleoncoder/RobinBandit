@@ -1,12 +1,4 @@
-"""Endpoint OpenAI-compatible: qualquer agente que aceite trocar a base_url
-passa a rotear pelo bandit sem código de integração.
-
-O protocolo OpenAI não tem campo para "essa resposta foi boa", então o canal de
-qualidade — que é o que o router tem de diferente — vive num endpoint próprio,
-`POST /feedback`, correlacionado pelo `id` que a resposta já devolve.
-
-Extra opcional: `pip install robinbandit[server]`. O núcleo não depende disso.
-"""
+"""Servidor OpenAI/Anthropic/Responses compatível do RobinBandit."""
 from collections import OrderedDict
 from typing import Any, Dict, List, Optional, Union
 import time
@@ -20,30 +12,20 @@ from pydantic import BaseModel, Field
 
 from pathlib import Path
 
-from .chain import ChainProvider
+from .routing.chain import ChainProvider
 
 
 def pasta_das_logos() -> Path:
-    """A arte dos provedores, dentro do pacote.
-
-    Ficava em `assets/` na raiz do repositorio: quem clonava via as imagens e
-    quem instalava pelo pip abria o painel com tudo quebrado.
-    """
+    """Pasta de logos empacotada junto do módulo."""
     return Path(__file__).resolve().parent / "assets" / "providers"
 
 
-# Teto de decisões guardadas à espera de feedback. Sem isso o dicionário cresce
-# para sempre; com isso, feedback muito atrasado é descartado em silêncio.
+# Limita respostas aguardando feedback.
 _MAX_PENDENTES = 10_000
 
 
 def _com_conexao(ferramentas: List[Dict[str, Any]], clientes) -> List[Dict[str, Any]]:
-    """Casa a configuração de cada ferramenta com quem já chamou.
-
-    O `id` do `cli_tools` e o que `clientes.detectar` devolve são o mesmo
-    vocabulário de propósito: assim a tela junta as duas coisas sem uma tabela
-    de tradução no meio, que envelheceria sozinha.
-    """
+    """Anexa o status de conexão conhecido de cada ferramenta."""
     vistos = {item["id"]: item for item in clientes.status()}
     return [{**f, "conexao": vistos.get(f["id"])} for f in ferramentas]
 
@@ -61,13 +43,7 @@ class _Pedido(BaseModel):
 
 
 class _PedidoAnthropic(BaseModel):
-    """O que o Claude Code manda em `/v1/messages`.
-
-    Campos que existem no protocolo e são ignorados de propósito — `tools`,
-    `thinking`, `output_config`, `metadata` — nem aparecem aqui: o Pydantic
-    descarta o que não foi declarado, e declarar para não usar daria a entender
-    que são atendidos.
-    """
+    """Subset do protocolo Anthropic usado pelo Claude Code."""
 
     messages: List[Dict[str, Any]]
     model: Optional[str] = None
@@ -78,12 +54,7 @@ class _PedidoAnthropic(BaseModel):
 
 
 class _PedidoResponses(BaseModel):
-    """Campos do protocolo usado pelo Codex CLI atual.
-
-    Itens desconhecidos continuam aceitos pelo Pydantic e são descartados. A
-    compatibilidade que afirmamos fica explícita aqui: histórico, ferramentas,
-    esforço de raciocínio e SSE.
-    """
+    """Subset da Responses API usado pelo Codex CLI."""
 
     input: Any
     model: Optional[str] = None
@@ -128,8 +99,6 @@ class _Conta(BaseModel):
     provedor: str
     variavel: str
     label: str = ""
-    # Crédito pago fica reservado para o que vale a pena: sem esta marca, uma
-    # tarefa lateral gasta a chave cara igual à gratuita.
     paga: bool = False
 
 
@@ -147,11 +116,8 @@ class _Credencial(BaseModel):
 
     variavel: str
     valor: str
-    # Uma conta pode ter várias chaves — o rotador alterna quando uma bate a
-    # cota. Substituir por padrão seria apagar as outras em silêncio.
+    # Por padrão, acrescenta sem substituir chaves existentes.
     adicionar: bool = True
-    # Apelido dado na hora de colar. Quatro chaves do mesmo provedor viravam
-    # quatro dicas de quatro caracteres, e rotacionar era adivinhar.
     rotulo: str = ""
     paga: bool = False
 
@@ -167,20 +133,20 @@ class _RotuloDaChave(BaseModel):
     paga: Optional[bool] = None
 
 
-def create_app(providers: List[Any], router, cache=None, config=None) -> FastAPI:
-    """Monta o app sobre os provedores e o router que você já tem.
-
-    O campo `model` do pedido vira o **contexto** do bandit. É o único campo que
-    todo cliente OpenAI envia, então dá para escolher contexto de um cliente sem
-    modificação: `model="auditoria"` aprende numa célula, `model="triagem"` em
-    outra. Sem `model`, cai na célula default.
-    """
+def create_app(
+    providers: List[Any], router, cache=None, config=None, activity=None,
+) -> FastAPI:
+    """Monta o app HTTP sobre os provedores e o router."""
     app = FastAPI(title="RobinBandit")
-    # id da resposta -> (provedor que respondeu, contexto), para o /feedback
-    # atribuir a recompensa à decisão certa mesmo chegando muito depois.
+    # id da resposta -> (provedor, contexto), para /feedback.
     decisoes: "OrderedDict[str, tuple]" = OrderedDict()
-    # Quem está do outro lado, para a tela Conectar responder "funcionou?".
     clientes = _Clientes()
+    app.state.clientes = clientes
+    from .state.atividade import Atividade
+
+    atividade = activity or Atividade()
+    # Usado por testes/demos sem expor rota de escrita.
+    app.state.atividade = atividade
 
     def rota_da_chamada(request: Request):
         """Traduz o modo HTTP sem sequestrar o campo `model` do cliente."""
@@ -196,7 +162,7 @@ def create_app(providers: List[Any], router, cache=None, config=None) -> FastAPI
         if config is None:
             raise HTTPException(400, "Reforçado exige um catálogo configurado")
         from .providers import build_tier_provider
-        from .selection import RouteSelection
+        from .routing.selection import RouteSelection
 
         reforcado = build_tier_provider(config, "ultra")
         return [reforcado, *providers], RouteSelection.hybrid("ultra")
@@ -207,14 +173,11 @@ def create_app(providers: List[Any], router, cache=None, config=None) -> FastAPI
             raise HTTPException(400, "streaming não é suportado")
 
         contexto = pedido.model
-        # Antes de qualquer coisa que possa falhar: uma chamada que chegou e
-        # deu errado prova tanto quanto uma que deu certo que a ferramenta
-        # encontrou o RobinBandit — e é justo quando a tela precisa dizer isso.
+        # Mesmo erro de provedor prova que a ferramenta chegou ao RobinBandit.
         clientes.anotar(request.headers.get("user-agent", ""), contexto)
-        # Uma cadeia por request: last_provider é atributo de instância e uma
-        # cadeia compartilhada embaralharia as respostas concorrentes.
+        # Uma cadeia por request preserva last_provider sob concorrência.
         provedores_da_chamada, selecao = rota_da_chamada(request)
-        chain = ChainProvider(provedores_da_chamada, router, cache=cache)
+        chain = ChainProvider(provedores_da_chamada, router, cache=cache, activity=atividade)
         mensagens = [m.model_dump() for m in pedido.messages]
         try:
             texto = await chain.complete(
@@ -252,18 +215,8 @@ def create_app(providers: List[Any], router, cache=None, config=None) -> FastAPI
 
     @app.post("/v1/messages")
     async def messages(pedido: _PedidoAnthropic, request: Request) -> Any:
-        """O protocolo da Anthropic, que é o que o Claude Code fala.
-
-        Ele não chama `/v1/chat/completions`: chama aqui, com `system` à parte e
-        `content` em blocos. Enquanto esta rota não existia, a configuração que
-        o painel entregava respondia 404 — a tela prometia uma ligação que nunca
-        se completava.
-
-        O `model` continua sendo o contexto do bandit, igual ao endpoint
-        OpenAI: `ANTHROPIC_MODEL=codigo` aprende numa célula, `revisao` em
-        outra.
-        """
-        from . import anthropic_api
+        """Endpoint Anthropic usado pelo Claude Code."""
+        from .api import anthropic_api
 
         contexto = pedido.model
         clientes.anotar(request.headers.get("user-agent", ""), contexto)
@@ -273,14 +226,13 @@ def create_app(providers: List[Any], router, cache=None, config=None) -> FastAPI
             raise HTTPException(400, "nenhuma mensagem de texto no pedido")
 
         provedores_da_chamada, selecao = rota_da_chamada(request)
-        chain = ChainProvider(provedores_da_chamada, router, cache=cache)
+        chain = ChainProvider(provedores_da_chamada, router, cache=cache, activity=atividade)
         try:
             texto = await chain.complete(
                 mensagens, pedido.temperature, context=contexto, selection=selecao,
             )
         except RuntimeError as exc:
-            # No envelope da Anthropic: o cliente lê `error.message` e mostra o
-            # motivo real em vez de "unknown error".
+            # Mantém o envelope de erro esperado pela Anthropic.
             return JSONResponse(status_code=502, content=anthropic_api.erro(str(exc)))
 
         corpo = anthropic_api.resposta(texto, chain.last_model, chain.last_usage)
@@ -290,10 +242,7 @@ def create_app(providers: List[Any], router, cache=None, config=None) -> FastAPI
                 decisoes.popitem(last=False)
 
         if pedido.stream:
-            # O cliente pede SSE; a resposta já está pronta e vai inteira, num
-            # bloco só. Não é streaming de verdade — é o formato que ele sabe
-            # ler. Streaming real exigiria os provedores entregarem token a
-            # token, e nem todos entregam.
+            # SSE compatível: resposta pronta em um único evento.
             return StreamingResponse(
                 anthropic_api.eventos(corpo),
                 media_type="text/event-stream",
@@ -302,13 +251,8 @@ def create_app(providers: List[Any], router, cache=None, config=None) -> FastAPI
 
     @app.post("/v1/responses")
     async def responses(pedido: _PedidoResponses, request: Request) -> Any:
-        """Responses API para o Codex entrar pelo mesmo roteador.
-
-        O protocolo é traduzido na borda. A conta ChatGPT/Codex de saída
-        continua sendo apenas mais um provedor e não é confundida com o cliente
-        que chamou esta rota.
-        """
-        from . import responses_api
+        """Responses API para clientes como Codex CLI."""
+        from .api import responses_api
 
         contexto = pedido.model
         clientes.anotar(request.headers.get("user-agent", ""), contexto)
@@ -321,7 +265,7 @@ def create_app(providers: List[Any], router, cache=None, config=None) -> FastAPI
             esforco = pedido.reasoning.get("effort")
 
         provedores_da_chamada, selecao = rota_da_chamada(request)
-        chain = ChainProvider(provedores_da_chamada, router, cache=cache)
+        chain = ChainProvider(provedores_da_chamada, router, cache=cache, activity=atividade)
         try:
             texto = await chain.complete(
                 mensagens,
@@ -356,8 +300,7 @@ def create_app(providers: List[Any], router, cache=None, config=None) -> FastAPI
 
     @app.post("/feedback")
     async def feedback(fb: _Feedback) -> Dict[str, Any]:
-        """Fecha o loop de qualidade. O `id` é o da resposta que você avaliou —
-        pode chegar bem depois, quando o revisor terminar."""
+        """Fecha o loop de qualidade de uma resposta."""
         decisao = decisoes.pop(fb.id, None)
         if decisao is None:
             raise HTTPException(404, "id desconhecido ou já avaliado")
@@ -367,8 +310,7 @@ def create_app(providers: List[Any], router, cache=None, config=None) -> FastAPI
 
     @app.get("/v1/models")
     async def models() -> Dict[str, Any]:
-        # Clientes que enumeram modelos esperam esta rota. O que o RobinBandit
-        # expõe são os provedores; qual modelo cada um usa é decisão dele.
+        # Clientes que enumeram modelos esperam esta rota.
         return {
             "object": "list",
             "data": [
@@ -384,21 +326,18 @@ def create_app(providers: List[Any], router, cache=None, config=None) -> FastAPI
 
     @app.get("/painel", response_class=HTMLResponse)
     async def painel_html() -> str:
-        from .painel import PAGINA
+        from .ui.painel import PAGINA
 
         return PAGINA
 
     @app.get("/painel/dados")
     async def painel_dados(request: Request) -> Dict[str, Any]:
-        """O que a página mostra. Tudo daqui já existe no router — a página não
-        calcula nada, só desenha."""
-        from . import cli_tools
+        """Dados agregados que o painel desenha."""
+        from .ui import cli_tools
 
         estado = router.snapshot()
         todos = [getattr(p, "name", type(p).__name__) for p in providers]
-        # O último recurso não é provedor: é o aviso de que nenhum respondeu.
-        # Listado junto, ele aparecia num ranking de qualidade e num gráfico de
-        # uptime, como se competisse com os outros.
+        # O último recurso é aviso/fallback, não provedor competitivo.
         ultimo = str(getattr(config, "last_resort", "") or "").strip().lower()
         nomes = [n for n in todos if n != ultimo]
 
@@ -414,9 +353,15 @@ def create_app(providers: List[Any], router, cache=None, config=None) -> FastAPI
                 "cooldown": dados.get("cooldown", 0),
                 "qualidade": dados.get("quality_mean") or dados.get("health_mean") or 0,
                 "amostras": dados.get("quality_samples", 0),
+                "ultimo_modelo": dados.get("last_model") or "",
+                "ha_segundos": dados.get("seconds_ago"),
+                "em_andamento": dados.get("inflight", 0),
+                "rpm_restante": dados.get("rpm_remaining"),
+                "rpd_restante": dados.get("rpd_remaining"),
+                "rpm_usado": dados.get("rpm_used", 0),
             })
 
-        # A ordem de verdade, pedida ao router — não uma reordenação da página.
+        # Ordem calculada pelo router.
         ordem = []
         try:
             for provedor in router.order(list(providers), "painel"):
@@ -427,19 +372,14 @@ def create_app(providers: List[Any], router, cache=None, config=None) -> FastAPI
                 ok, err = dados.get("ok", 0), dados.get("err", 0)
                 total = ok + err
                 cooldown = dados.get("cooldown", 0)
-                # Qualidade só existe com feedback; sem ele o que o router tem
-                # é saúde. Mostrar "—" nas duas esconde que ele está decidindo
-                # com alguma coisa.
+                # Sem feedback explícito, usa saúde operacional.
                 qualidade = dados.get("quality_mean")
                 saude = dados.get("health_mean")
-                # Sem nenhuma chamada, o número é o prior do catálogo — um
-                # palpite de fábrica, igual para todo mundo. Escrito como
-                # "0.60" ele passava por medição de um provedor nunca usado.
+                # Sem chamada, o número ainda é prior do catálogo.
                 estimado = not total
                 ordem.append({
                     "nome": nome,
-                    # O número cru, para a página desenhar a barra; o texto é só
-                    # para quem lê a tabela.
+                    # Número cru para a barra do painel.
                     "qualidade_num": qualidade or saude or 0,
                     "estimado": estimado,
                     "qualidade": (
@@ -449,9 +389,6 @@ def create_app(providers: List[Any], router, cache=None, config=None) -> FastAPI
                     ),
                     "sucesso": f"{(ok / total * 100):.0f}%" if total else "—",
                     "latencia": f"{dados.get('latency_ms')}ms" if dados.get("latency_ms") else "—",
-                    # "saudavel" era o texto padrao de quem nao tinha detalhe —
-                    # inclusive de quem tinha acabado de falhar 18 vezes. A
-                    # coluna so fala quando tem o que dizer.
                     "motivo": (
                         f"em espera ({cooldown}s)" if cooldown
                         else "sem histórico" if not total
@@ -471,9 +408,7 @@ def create_app(providers: List[Any], router, cache=None, config=None) -> FastAPI
             "ordem": ordem,
             "chamadas": chamadas,
             "estrategia": getattr(router, "_strategy", "adaptive"),
-            # Com quem já chamou junto: a tela Conectar entregava a
-            # configuração e parava aí, deixando "colei no lugar certo?" para o
-            # primeiro erro dentro do agente — o pior lugar para descobrir.
+            "atividade": atividade.resumo(),
             "ferramentas": _com_conexao(cli_tools.todas(base), clientes),
             "rodape": (
                 "A fila segue o modo escolhido em Provedores. Saúde e cooldown "
@@ -483,12 +418,7 @@ def create_app(providers: List[Any], router, cache=None, config=None) -> FastAPI
 
     @app.get("/logos/{arquivo}")
     async def logo(arquivo: str):
-        """A arte dos provedores mora aqui, com o resto do que é deles.
-
-        O Sentury servia essas imagens da própria pasta pública — e uma cópia
-        por agente hospedeiro envelhece em ritmos diferentes. Quem sabe qual
-        provedor existe é o RobinBandit.
-        """
+        """Serve logos empacotadas dos provedores."""
         from pathlib import Path as _Path
 
         from fastapi.responses import FileResponse
@@ -516,7 +446,7 @@ def create_app(providers: List[Any], router, cache=None, config=None) -> FastAPI
         O RobinBandit roteia para qualquer agente, então a configuração dele
         mora aqui — não na tela de quem o hospeda.
         """
-        from . import account_config
+        from .accounts import account_config
 
         catalogo = getattr(config, "providers", None) or {}
         na_cadeia = [getattr(p, "name", type(p).__name__) for p in providers]
@@ -552,7 +482,7 @@ def create_app(providers: List[Any], router, cache=None, config=None) -> FastAPI
                 "modelos_proprios": bool(modelos_escolhidos.get(nome)),
             })
 
-        from . import idioma as _idioma
+        from .ui import idioma as _idioma
 
         return {
             "idioma": _idioma.escolhido(),
@@ -591,7 +521,7 @@ def create_app(providers: List[Any], router, cache=None, config=None) -> FastAPI
 
     @app.put("/config/estrategia")
     async def trocar_estrategia(payload: _Estrategia) -> Dict[str, Any]:
-        from . import account_config
+        from .accounts import account_config
 
         try:
             escolhida = account_config.definir_estrategia(payload.valor)
@@ -604,13 +534,8 @@ def create_app(providers: List[Any], router, cache=None, config=None) -> FastAPI
 
     @app.put("/config/idioma")
     async def trocar_idioma(payload: _Idioma) -> Dict[str, Any]:
-        """Em que língua o painel e a linha de comando respondem.
-
-        A escolha é uma só para as duas interfaces: trocar no painel e continuar
-        recebendo a CLI em outra língua seria configurar duas vezes a mesma
-        coisa.
-        """
-        from . import idioma as _idioma
+        """Define o idioma do painel e da CLI."""
+        from .ui import idioma as _idioma
 
         try:
             escolhido = _idioma.definir(payload.valor)
@@ -620,15 +545,14 @@ def create_app(providers: List[Any], router, cache=None, config=None) -> FastAPI
 
     @app.put("/config/cadeia")
     async def trocar_cadeia(payload: _Cadeia) -> Dict[str, Any]:
-        from . import account_config
+        from .accounts import account_config
 
         catalogo = getattr(config, "providers", None) or {}
         try:
             nova = account_config.definir_cadeia(payload.nomes, list(catalogo.keys()) or None)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
-        # Reordenar quem já está montado vale imediatamente. Entrar com um
-        # provedor que ainda não foi instanciado continua exigindo reinício.
+        # Provedores já instanciados podem ser reordenados imediatamente.
         atuais = {getattr(p, "name", type(p).__name__): p for p in providers}
         ultimo = str(getattr(config, "last_resort", "") or "").strip().lower()
         ativos = [atuais[nome] for nome in nova if nome in atuais and nome != ultimo]
@@ -645,7 +569,7 @@ def create_app(providers: List[Any], router, cache=None, config=None) -> FastAPI
 
     @app.put("/config/tier")
     async def trocar_tier(payload: _Tier) -> Dict[str, Any]:
-        from . import account_config
+        from .accounts import account_config
 
         try:
             account_config.definir_tier_de_provedor(payload.provedor, payload.tier)
@@ -655,13 +579,8 @@ def create_app(providers: List[Any], router, cache=None, config=None) -> FastAPI
 
     @app.put("/config/modelos")
     async def trocar_modelos(payload: _Modelos) -> Dict[str, Any]:
-        """A ordem de tentativa dentro de um provedor.
-
-        "No Claude Code, tente Opus; se não der, Sonnet; por último Haiku." É
-        outra decisão que o tier não resolve: tier ordena provedores, isto
-        ordena modelos.
-        """
-        from . import account_config
+        """Define a ordem de tentativa de modelos dentro de um provedor."""
+        from .accounts import account_config
 
         try:
             escolhidos = account_config.definir_modelos_de_provedor(
@@ -673,7 +592,7 @@ def create_app(providers: List[Any], router, cache=None, config=None) -> FastAPI
     @app.get("/saldo")
     async def saldo() -> Dict[str, Any]:
         """Credito restante, onde o provedor informa. Nunca a chave."""
-        from . import saldo as _saldo
+        from .catalog import saldo as _saldo
 
         try:
             return {"contas": await _saldo.consultar(config)}
@@ -682,14 +601,8 @@ def create_app(providers: List[Any], router, cache=None, config=None) -> FastAPI
 
     @app.get("/contas")
     async def contas() -> Dict[str, Any]:
-        """As contas de cada provedor, e como cada uma autentica.
-
-        Uma conta pode ter várias chaves, e algumas não têm chave nenhuma: o
-        Claude Code e o Codex autenticam pelo CLI oficial, que é dono da
-        sessão. Listadas junto com as outras e sem essa distinção, elas
-        apareciam como "sem chave" com o login funcionando.
-        """
-        from . import account_config
+        """Contas de cada provedor e seus métodos de autenticação."""
+        from .accounts import account_config
         from .accounts import catalogo_efetivo
 
         if config is None:
@@ -701,10 +614,7 @@ def create_app(providers: List[Any], router, cache=None, config=None) -> FastAPI
         }
         for conta in painel["contas"]:
             conta["provedor_label"] = rotulos.get(conta["provider"], conta["provider"])
-        # Os modos pesados vinham de `selection_tier` num provedor `ultra` que
-        # deixou de existir — virou conta do OpenRouter. Agora saem de onde a
-        # informação de fato mora: o mapa tier→modelo do provedor, e o
-        # tier→conta declarado.
+        # Alvos de modo vêm do mapa tier->modelo e do tier->conta declarado.
         rotulos_de_tier = {"ultra": "Reforçado", "ultra_max": "Dedicado"}
         alvos: Dict[str, str] = {}
         for spec in config.providers.values():
@@ -713,9 +623,7 @@ def create_app(providers: List[Any], router, cache=None, config=None) -> FastAPI
         for tier in painel.get("tiers", {}):
             alvos.setdefault(str(tier), rotulos_de_tier.get(str(tier), str(tier)))
         painel["agent_mode"] = getattr(config, "agent_mode", "universal")
-        # Dedicado pertence ao fluxo do Sentury e já tem interface lá. Repetir
-        # o controle no painel do RobinBandit criava duas fontes de verdade.
-        # Reforçado permanece porque é a seleção híbrida do núcleo.
+        # Dedicado é fluxo do Sentury; o painel universal mantém só Reforçado.
         alvos = {tier: label for tier, label in alvos.items() if tier == "ultra"}
         painel["alvos"] = alvos
         ordem = account_config.ordem_do_reforcado()
@@ -726,12 +634,8 @@ def create_app(providers: List[Any], router, cache=None, config=None) -> FastAPI
 
     @app.post("/contas")
     async def criar_conta(req: _Conta) -> Dict[str, Any]:
-        """Declara outra conta do mesmo provedor, com nome próprio.
-
-        Duas chaves do Groq não são dois Groqs: são duas contas, e o rotador
-        alterna entre elas quando uma bate a cota.
-        """
-        from . import account_config
+        """Declara outra conta do mesmo provedor."""
+        from .accounts import account_config
 
         try:
             return account_config.salvar_conta({
@@ -743,20 +647,15 @@ def create_app(providers: List[Any], router, cache=None, config=None) -> FastAPI
 
     @app.delete("/contas/{conta_id}")
     async def apagar_conta(conta_id: str) -> Dict[str, Any]:
-        """Tira a conta declarada. A chave dela continua no cofre até ser
-        removida na mão: apagar as duas coisas de uma vez seria destrutivo
-        demais para um clique."""
-        from . import account_config
+        """Remove a conta declarada, sem apagar a chave do cofre."""
+        from .accounts import account_config
 
         return {"removida": account_config.remover_conta(conta_id)}
 
     @app.put("/contas/tier")
     async def apontar_tier(req: _TierDaConta) -> Dict[str, Any]:
-        """Qual conta serve um tier de seleção (Reforçado, Dedicado).
-
-        É o que separa "gaste a conta gratuita" de "pode gastar meu crédito".
-        """
-        from . import account_config
+        """Define qual conta atende um tier de seleção."""
+        from .accounts import account_config
         from .accounts import catalogo_efetivo
 
         if config is None:
@@ -771,7 +670,7 @@ def create_app(providers: List[Any], router, cache=None, config=None) -> FastAPI
     @app.put("/contas/reforcado")
     async def ordenar_reforcado(req: _OrdemDoReforcado) -> Dict[str, Any]:
         """Escolhe as contas tentadas, em ordem, antes da rota normal."""
-        from . import account_config
+        from .accounts import account_config
         from .accounts import catalogo_efetivo
 
         if config is None:
@@ -787,26 +686,15 @@ def create_app(providers: List[Any], router, cache=None, config=None) -> FastAPI
 
     @app.get("/credenciais")
     async def credenciais() -> Dict[str, Any]:
-        """Quais variáveis cada provedor espera, e se já estão preenchidas.
-
-        O RobinBandit tem cofre próprio; quem o expunha era o agente
-        hospedeiro. Sem esta rota, quem não usa um deles só conseguia
-        configurar chave exportando variável de ambiente e reiniciando.
-
-        Volta nome da variável, presença, origem e quantas chaves há. Nunca o
-        valor — nem prefixo, nem sufixo: a dica é só o final, e só quando sobra
-        o bastante para esconder.
-        """
+        """Lista variáveis esperadas e presença no cofre/ambiente."""
         import os
 
-        from . import secrets as _secrets
+        from .accounts import secrets as _secrets
         from .accounts import variaveis_conhecidas
 
         if config is None:
             return {"credenciais": [], "cofre": ""}
-        # Agrupadas pelo provedor EFETIVO. `ultra` e `ultra_max` batem no mesmo
-        # endpoint do OpenRouter com outra chave: são credenciais com nome, não
-        # provedores, e listá-las à parte fazia parecer haver três OpenRouters.
+        # Agrupa credenciais pelo provedor efetivo.
         por_variavel: Dict[str, Dict[str, str]] = {}
         for chave, spec in config.providers.items():
             dono = str(spec.get("conta_de") or "").strip() or chave
@@ -830,22 +718,16 @@ def create_app(providers: List[Any], router, cache=None, config=None) -> FastAPI
 
     @app.post("/credenciais")
     async def guardar_credencial(req: _Credencial) -> Dict[str, Any]:
-        """Grava no cofre (0600), não no `.env` de ninguém.
-
-        A lista branca vem do catálogo: variável que nenhum provedor declara
-        não entra, senão um POST escreveria qualquer configuração.
-        """
+        """Grava no cofre local, validando contra o catálogo."""
         import os
 
-        from . import secrets as _secrets
+        from .accounts import secrets as _secrets
         from .accounts import variaveis_conhecidas
 
         if config is None:
             raise HTTPException(status_code=400, detail="sem catalogo carregado")
         try:
-            # A semente preserva o que o ambiente já tinha: sem ela, acrescentar
-            # a terceira chave a uma variável com duas no ambiente deixaria a
-            # conta com uma só, porque o cofre vence o ambiente.
+            # Preserva chaves já vindas do ambiente ao criar o cofre.
             chaves = _secrets.guardar(
                 req.variavel, req.valor,
                 permitidos=variaveis_conhecidas(None, config),
@@ -860,19 +742,10 @@ def create_app(providers: List[Any], router, cache=None, config=None) -> FastAPI
 
     @app.post("/credenciais/importar")
     async def importar_do_ambiente() -> Dict[str, Any]:
-        """Copia para o cofre do RobinBandit as chaves que só existem no ambiente.
-
-        Sem isto, o RobinBandit depende do `.env` do agente que o hospeda: as
-        chaves são dele, mas moravam no repositório do outro, e rodar o
-        RobinBandit sozinho trazia metade dos provedores.
-
-        O arquivo de origem não é tocado — nada é apagado, nada é reescrito.
-        Variável que já está no cofre fica como está: o cofre é a palavra mais
-        recente e sobrescrevê-la desfaria uma escolha feita aqui.
-        """
+        """Copia para o cofre chaves presentes só no ambiente."""
         import os
 
-        from . import secrets as _secrets
+        from .accounts import secrets as _secrets
         from .accounts import variaveis_conhecidas
 
         if config is None:
@@ -890,17 +763,12 @@ def create_app(providers: List[Any], router, cache=None, config=None) -> FastAPI
                 trazidas.append(nome)
             except ValueError:
                 continue
-        # Só os NOMES voltam. O valor não sai daqui nem em pedaço.
         return {"trazidas": trazidas, "ja_no_cofre": ja_tinha, "cofre": str(_secrets.caminho_do_cofre())}
 
     @app.put("/credenciais/{variavel}/{indice}")
     async def descrever_chave(variavel: str, indice: int, req: _RotuloDaChave) -> Dict[str, Any]:
-        """Renomeia uma chave, ou marca que ela é crédito pago.
-
-        Pela posição, nunca pelo valor: o valor não sai daqui, então é a
-        posição e a dica que o painel conhece.
-        """
-        from . import secrets as _secrets
+        """Renomeia uma chave ou marca crédito pago."""
+        from .accounts import secrets as _secrets
 
         ok = _secrets.descrever_chave(variavel, indice, rotulo=req.rotulo, paga=req.paga)
         if not ok:
@@ -909,29 +777,22 @@ def create_app(providers: List[Any], router, cache=None, config=None) -> FastAPI
 
     @app.delete("/credenciais/{variavel}/{indice}")
     async def remover_uma_chave(variavel: str, indice: int) -> Dict[str, Any]:
-        """Índice em vez do valor: o valor nunca sai daqui, então o painel só
-        conhece a posição e a dica."""
-        from . import secrets as _secrets
+        """Remove uma chave pelo índice."""
+        from .accounts import secrets as _secrets
 
         return {"removida": _secrets.remover_chave(variavel, indice)}
 
     @app.delete("/credenciais/{variavel}")
     async def remover_credencial(variavel: str) -> Dict[str, Any]:
-        """Tira do cofre. O ambiente NÃO é tocado: se a variável veio do `.env`,
-        ela continua valendo — remover do cofre não pode apagar o que o deploy
-        configurou."""
-        from . import secrets as _secrets
+        """Remove do cofre sem tocar no ambiente."""
+        from .accounts import secrets as _secrets
 
         return {"removida": _secrets.remover(variavel)}
 
     @app.get("/modelos/{provedor}")
     async def descobrir_modelos(provedor: str) -> Dict[str, Any]:
-        """Modelos que o provedor diz ter, agora.
-
-        Digitar o id do modelo a mao envelhece: o provedor aposenta um id e a
-        cadeia so descobre quando falha.
-        """
-        from .model_catalog import fetch_model_catalog
+        """Modelos que o provedor informa no momento."""
+        from .catalog.model_catalog import fetch_model_catalog
 
         try:
             catalogo = await fetch_model_catalog(config, provedor)
@@ -941,14 +802,8 @@ def create_app(providers: List[Any], router, cache=None, config=None) -> FastAPI
 
     @app.get("/janelas")
     async def janelas() -> Dict[str, Any]:
-        """Quanto falta para o bloco de uso de cada assinatura virar.
-
-        Assinatura não fica lenta quando acaba: ela para, e volta numa hora que
-        dá para saber. O painel mostrava só o cooldown que o roteador chutou a
-        partir do último erro, e a pergunta real — *quando posso usar de novo?*
-        — não tinha resposta.
-        """
-        from . import janela, quota_ping
+        """Janelas de uso dos provedores de assinatura."""
+        from .state import janela; from .catalog import quota_ping
 
         if config is None:
             return {"janelas": [], "ping": quota_ping.configuracao()}
@@ -956,13 +811,8 @@ def create_app(providers: List[Any], router, cache=None, config=None) -> FastAPI
 
     @app.put("/janelas/ping")
     async def configurar_ping(req: _Ping) -> Dict[str, Any]:
-        """Liga o ping de cota, que custa cota para medir cota.
-
-        Vinha desligado e só mudava editando YAML — para uma opção que só faz
-        sentido para quem tem assinatura, e que essa pessoa quer ligar olhando
-        a janela, não reiniciando o processo.
-        """
-        from . import quota_ping
+        """Configura a sonda opcional de cota."""
+        from .catalog import quota_ping
 
         atual = quota_ping.configuracao()
         quota_ping.configurar({
@@ -976,15 +826,10 @@ def create_app(providers: List[Any], router, cache=None, config=None) -> FastAPI
 
     @app.get("/historico")
     async def historico_por_dia(dias: int = 30) -> Dict[str, Any]:
-        """Quem passou mais tempo no vermelho, e há quanto tempo foi.
+        """Histórico diário de estabilidade por provedor."""
+        from .state import historico as _historico
 
-        Um provedor bom que caiu um dia aparece com `dias_ruins: 1` e uptime
-        alto — o bastante para não ser julgado pelo pior dia dele.
-        """
-        from . import historico as _historico
-
-        # Fora daqui também: uptime do último recurso mede quantas vezes tudo
-        # falhou, não a saúde de um provedor.
+        # Exclui o último recurso do uptime de provedores.
         ultimo = str(getattr(config, "last_resort", "") or "").strip().lower()
         nomes = [n for n in (getattr(p, "name", type(p).__name__) for p in providers) if n != ultimo]
         limite = max(1, min(int(dias or 30), _historico.DIAS_GUARDADOS))
@@ -997,25 +842,22 @@ def create_app(providers: List[Any], router, cache=None, config=None) -> FastAPI
     @app.get("/uso")
     async def uso_de_tokens(dias: int = 365) -> Dict[str, Any]:
         """Tokens por dia e provedor, mais custo quando ele foi informado."""
-        from . import uso as _uso
+        from .state import uso as _uso
 
         limite = max(1, min(int(dias or 365), _uso.DIAS_GUARDADOS))
         return {
             "dias": limite,
             "calendario": _uso.calendario(limite),
-            "por_provedor": _uso.por_provedor(min(limite, 30)),
+            "por_provedor": _uso.por_provedor(limite),
+            "periodo": _uso.total(limite),
             "mes": _uso.total(30),
             "total": _uso.total(limite),
         }
 
     @app.get("/diagnostico")
     async def diagnostico() -> Dict[str, Any]:
-        """O que está errado na configuração, em português.
-
-        O módulo existia e ninguém via: a pessoa descobria que faltava uma
-        variável quando o provedor falhava no meio de um turno.
-        """
-        from .account_health import diagnosticar
+        """Diagnóstico legível da configuração."""
+        from .accounts.account_health import diagnosticar
         from .accounts import catalogo_efetivo
 
         if config is None:
@@ -1028,12 +870,8 @@ def create_app(providers: List[Any], router, cache=None, config=None) -> FastAPI
 
     @app.get("/aprendizado")
     async def aprendizado() -> Dict[str, Any]:
-        """O que o roteador mediu nesta máquina, e quando.
-
-        Não vai para o repositório de jeito nenhum: foi medido com ESTAS
-        chaves, neste plano, nesta região.
-        """
-        from . import estado as _estado
+        """Estado do aprendizado local do roteador."""
+        from .state import estado as _estado
 
         guardado = _estado.carregar()
         return {
@@ -1045,9 +883,8 @@ def create_app(providers: List[Any], router, cache=None, config=None) -> FastAPI
 
     @app.delete("/aprendizado")
     async def esquecer_aprendizado() -> Dict[str, Any]:
-        """Apaga o que foi medido. Para quando as chaves ou os planos mudaram e
-        o que foi medido antes passou a descrever outro mundo."""
-        from . import estado as _estado
+        """Apaga o aprendizado local."""
+        from .state import estado as _estado
 
         apagou = _estado.esquecer()
         router.reset()
@@ -1055,31 +892,20 @@ def create_app(providers: List[Any], router, cache=None, config=None) -> FastAPI
 
     @app.get("/erros")
     async def tabela_de_erros() -> Dict[str, Any]:
-        """Como o roteador reage ao erro de cada provedor.
-
-        Tabela, não algoritmo: a redação da mensagem muda quando o provedor
-        quer, e o tempo certo de espera muda por instalação e por plano.
-        """
-        from . import erros as _erros
+        """Tabela ativa de classificação de erros."""
+        from .routing import erros as _erros
 
         return {"cooldown_padrao": _erros.COOLDOWN_PADRAO, "regras": _erros.REGRAS_PADRAO}
 
     @app.get("/cli-tools")
     async def cli_tools_todas(request: Request) -> Dict[str, Any]:
-        """Configuração pronta para cada CLI apontar para cá.
-
-        Junto vai quem já chamou: copiar a configuração e não ter como saber se
-        colou no lugar certo deixava a conferência para o primeiro erro dentro
-        do agente, que é o pior lugar para descobrir.
-        """
-        from . import cli_tools
+        """Configuração pronta para cada CLI apontar para cá."""
+        from .ui import cli_tools
 
         ferramentas = _com_conexao(cli_tools.todas(str(request.base_url).rstrip("/")), clientes)
         conhecidos = {f["id"] for f in ferramentas}
 
-        # Quem chamou sem casar com nenhuma ferramenta conhecida ainda conta:
-        # é prova de que o endpoint está recebendo tráfego, e é como um padrão
-        # de detecção errado aparece em vez de sumir.
+        # Mantém User-Agents desconhecidos visíveis como "outros".
         outros = [i for i in clientes.status() if i["id"] not in conhecidos]
         return {"ferramentas": ferramentas, "outros": outros}
 

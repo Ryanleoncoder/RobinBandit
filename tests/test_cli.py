@@ -48,7 +48,7 @@ def test_key_add_acrescenta_em_vez_de_substituir(isolado, capsys):
     cli.main(["key", "add", "GROQ_API_KEY", "segunda_chave_bbb"])
     capsys.readouterr()
 
-    from robinbandit import secrets
+    from robinbandit.accounts import secrets
 
     assert len(secrets.listar("GROQ_API_KEY")) == 2
 
@@ -58,7 +58,7 @@ def test_replace_e_explicito(isolado, capsys):
     cli.main(["key", "add", "GROQ_API_KEY", "unica_chave_ccc", "--replace"])
     capsys.readouterr()
 
-    from robinbandit import secrets
+    from robinbandit.accounts import secrets
 
     assert len(secrets.listar("GROQ_API_KEY")) == 1
 
@@ -79,7 +79,7 @@ def test_providers_desligar_e_ligar(isolado, capsys):
     assert cli.main(["providers", "off", "groq"]) == 0
     capsys.readouterr()
 
-    from robinbandit import account_config
+    from robinbandit.accounts import account_config
 
     assert "groq" not in account_config.cadeia()
 

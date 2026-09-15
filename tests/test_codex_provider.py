@@ -2,12 +2,21 @@ from __future__ import annotations
 
 import pytest
 
-from robinbandit.codex_provider import (
+from robinbandit.providers.codex_provider import (
+    CodexAppServerClient,
     CodexAuthStatus,
     CodexProvider,
     _history_items,
     _split_messages,
 )
+
+
+def test_app_server_nao_herda_o_robinbandit_como_provedor():
+    """O Codex pode entrar e sair da mesma instalação sem chamar a si mesmo."""
+    command = CodexAppServerClient()._command("codex")
+
+    assert command[:4] == ["codex", "app-server", "--listen", "stdio://"]
+    assert 'model_provider="openai"' in command
 
 
 def test_split_messages_preserva_instrucoes_e_historico():
@@ -50,7 +59,7 @@ def test_history_items_converte_tool_calls_sem_perder_ids():
 @pytest.mark.asyncio
 async def test_codex_provider_usa_auth_do_cli_e_faz_failover_de_modelo(monkeypatch):
     monkeypatch.setattr(
-        "robinbandit.codex_provider.codex_auth_status",
+        "robinbandit.providers.codex_provider.codex_auth_status",
         lambda binary: CodexAuthStatus(True, "codex_cli", "autenticado"),
     )
     calls = []
@@ -82,7 +91,7 @@ async def test_codex_provider_usa_auth_do_cli_e_faz_failover_de_modelo(monkeypat
 @pytest.mark.asyncio
 async def test_codex_provider_recusa_quando_cli_nao_esta_autenticado(monkeypatch):
     monkeypatch.setattr(
-        "robinbandit.codex_provider.codex_auth_status",
+        "robinbandit.providers.codex_provider.codex_auth_status",
         lambda binary: CodexAuthStatus(False, "codex_cli", "execute: codex login"),
     )
     provider = CodexProvider(["modelo-a"])

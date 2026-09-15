@@ -1,12 +1,8 @@
   :root {
-    /* O bege e a marca. Os neutros puxam para o quente dele em vez de cinza
-       puro: cinza neutro ao lado de #EFE3D2 le-se como duas paletas. */
+    /* Paleta */
     --bege: #EFE3D2;
     --suave: #918777;
     --bege-fraco: #877E73;
-    /* Texto: subiu de #5E7A61 para passar de 4.5 de contraste sobre a
-       carta. O tom da marca continua em `--verde-borda`, que so pinta
-       linha e fundo, onde a regra de texto nao se aplica. */
     --verde: #69886C;
     --verde-borda: #5E7A61;
     --verde-claro: #7C9A7F;
@@ -25,9 +21,7 @@
 
   * { box-sizing: border-box; }
 
-  /* Regras de componentes como `.placar { display: grid }` vencem o estilo
-     nativo de `[hidden]` do navegador. Sem uma regra de autor, o JS marcava os
-     blocos como escondidos e eles continuavam desenhados. */
+  /* Garante prioridade sobre componentes com display próprio. */
   [hidden] { display: none !important; }
 
   body {
@@ -36,9 +30,6 @@
     -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;
   }
 
-  /* Nao use `overflow-x: hidden` no html: ele desliga `position: sticky` no
-     descendente, e foi assim que a barra lateral parou de acompanhar. O que
-     for largo rola dentro da propria caixa. */
   .app { display: grid; grid-template-columns: 236px minmax(0, 1fr); min-height: 100vh; }
 
   /* ---------------------------------------------------------- barra lateral */
@@ -51,6 +42,11 @@
   .marca img { width: 28px; height: 28px; object-fit: contain; }
   .marca span { font-size: 15px; font-weight: 700; letter-spacing: .01em; }
   .marca span b { color: var(--verde-claro); font-weight: 700; }
+  .nav-grupo {
+    margin: 15px 10px 5px; color: #655f56; font: 10px/1.2 var(--mono);
+    text-transform: uppercase; letter-spacing: .13em;
+  }
+  .marca + .nav-grupo { margin-top: 0; }
 
   nav button {
     font: inherit; font-size: 14px; text-align: left; padding: 8px 10px;
@@ -70,7 +66,7 @@
   nav .rodape b { color: var(--bege); font-weight: 500; font-family: var(--mono); }
 
   /* -------------------------------------------------------------- conteudo */
-  main { padding: 34px 40px 90px; max-width: 1100px; }
+  main { padding: 34px 40px 90px; max-width: 1220px; width: 100%; min-width: 0; }
   .cabeca { margin-bottom: 32px; }
   h1 { font-size: 30px; margin: 0 0 7px; letter-spacing: -.02em; font-weight: 650;
     text-wrap: balance; }
@@ -88,6 +84,22 @@
     background: var(--carta-alta); padding: 1px 5px; border-radius: 5px; }
 
   .recado { color: var(--ambar); font-size: 14px; min-height: 18px; margin: 12px 0 0; }
+  .nota-local { color: var(--bege-fraco); font-size: 12px; margin: -7px 0 11px; }
+
+  /* Mapa Normal/Reforçado */
+  .mapa-rotas { display: grid; grid-template-columns: 1fr auto 1fr; gap: 12px;
+    align-items: stretch; margin-bottom: 30px; }
+  .rota-tipo { position: relative; padding: 17px 18px; border-radius: var(--raio);
+    border: 1px solid var(--linha-fraca); background: var(--carta); }
+  .rota-tipo.principal { border-color: rgba(105,136,108,.6);
+    background: linear-gradient(115deg, rgba(94,122,97,.12), var(--carta) 58%); }
+  .rota-tipo strong { display: block; font-size: 17px; margin: 2px 0 4px; }
+  .rota-tipo p { color: var(--suave); margin: 0 0 12px; font-size: 13px; line-height: 1.55;
+    max-width: 48ch; }
+  .rota-etiqueta { color: var(--bege-fraco); font: 10px/1 var(--mono);
+    text-transform: uppercase; letter-spacing: .12em; }
+  .rota-ou { align-self: center; color: #655f56; font: 11px/1 var(--mono);
+    text-transform: uppercase; }
 
   /* ----------------------------------------------------------------- cartas */
   .carta { border: 1px solid var(--linha-fraca); border-radius: var(--raio);
@@ -107,14 +119,20 @@
   .posicao { font-family: var(--mono); font-size: 12px; color: var(--bege-fraco); width: 34px; }
   .comlogo { display: flex; align-items: center; gap: 9px; }
   .comlogo img, .logo { width: 17px; height: 17px; object-fit: contain; border-radius: 4px; flex: none; }
-  /* SVGs monocromáticos com currentColor viram pretos quando carregados por
-     <img>; imagens externas não herdam a cor do documento. */
-  .logo[src$="/groq.svg"], .logo[src$="/openrouter.svg"],
-  .logo[src$="/ollama.svg"], .logo[src$="/openai.svg"] {
+  /* SVGs monocromáticos com currentColor não herdam cor quando vêm por <img>. */
+  .logo[src$="/cerebras.svg"], .logo[src$="/chutes.svg"],
+  .logo[src$="/cohere.svg"], .logo[src$="/deepinfra.svg"],
+  .logo[src$="/fireworks.svg"], .logo[src$="/github.svg"],
+  .logo[src$="/groq.svg"], .logo[src$="/huggingface.svg"],
+  .logo[src$="/llamacpp.svg"], .logo[src$="/llm7.svg"],
+  .logo[src$="/lmstudio.svg"], .logo[src$="/mcp.svg"],
+  .logo[src$="/moonshot.svg"], .logo[src$="/nscale.svg"],
+  .logo[src$="/ollama.svg"], .logo[src$="/ollama_cloud.svg"],
+  .logo[src$="/openai.svg"], .logo[src$="/openrouter.svg"],
+  .logo[src$="/xai.svg"] {
     filter: invert(91%) sepia(9%) saturate(413%) hue-rotate(348deg) brightness(102%);
   }
-  /* Provedor sem arte ganha a sigla. O nome da classe tem que bater com o que
-     o `onerror` da imagem escreve, senao a sigla sai sem estilo nenhum. */
+  /* Fallback para provedor sem logo. */
   .logo.falta {
     display: inline-flex; align-items: center; justify-content: center;
     background: var(--carta-alta); color: var(--bege-fraco); font-size: 11px;
@@ -123,10 +141,7 @@
   }
   .porque { color: var(--bege-fraco); font-size: 14px; }
 
-  /* Barra de qualidade: com 4px de altura e cor chapada ela nao dizia nada. */
   .medidor { display: flex; align-items: center; gap: 9px; }
-  /* 5px de trilho com 62px de largura nao mostrava diferenca entre 0.70 e
-     0.95: a barra inteira lia-se como uma risca cinza. */
   .medidor .trilho { width: 76px; height: 7px; border-radius: 999px; background: #212227;
     overflow: hidden; flex: none; }
   .medidor .cheio { height: 100%; border-radius: 999px; background: var(--verde-claro);
@@ -135,8 +150,6 @@
   .medidor .cheio.baixo { background: var(--ruim); box-shadow: 0 0 8px rgba(201,85,61,.3); }
   .medidor .valor { font-family: var(--mono); font-size: 13px; font-variant-numeric: tabular-nums; }
   .medidor .valor.palpite { color: var(--bege-fraco); }
-  /* "0.95*" nao se explica sozinho. A palavra cabe e diz o que o asterisco
-     queria dizer: este numero e o prior do catalogo, nao uma medicao. */
   .medidor .palpite-nota { font-size: 11px; text-transform: uppercase; letter-spacing: .07em;
     color: var(--bege-fraco); border: 1px solid var(--linha-fraca); border-radius: 999px;
     padding: 1px 6px; }
@@ -151,9 +164,6 @@
   .selo.mau { color: var(--ruim); border-color: rgba(201,85,61,.4); background: rgba(201,85,61,.1); }
 
   /* ------------------------------------------------------- primeiros passos */
-  /* Lista, nao cartoes: sao tres frases curtas em sequencia, e embrulhar cada
-     uma numa superficie propria nao acrescenta hierarquia — so ruido. O `h2`
-     e o mesmo das outras secoes da tela, de proposito. */
   .passos { list-style: none; margin: 0 0 38px; padding: 0; }
   .passos li { display: grid; grid-template-columns: 26px 1fr; gap: 14px; padding-bottom: 20px; }
   .passos li:last-child { padding-bottom: 0; }
@@ -161,8 +171,6 @@
     font-family: var(--mono); font-size: 12px; color: var(--bege-fraco);
     padding-top: 2px; font-variant-numeric: tabular-nums;
   }
-  /* Concluido troca o numero pelo visto, e nao so a cor: estado que depende de
-     cor sozinha nao chega a quem nao a distingue. */
   .passos li.feito .n { color: var(--verde-claro); }
   .passos strong { display: block; font-size: 14px; font-weight: 600; margin-bottom: 2px; }
   .passos li.feito strong { color: var(--suave); font-weight: 500; }
@@ -183,14 +191,52 @@
     letter-spacing: .09em; color: var(--bege-fraco); margin-top: 3px; }
   .placar small { display: block; font-size: 13px; color: var(--suave); margin-top: 5px; }
 
+  /* ------------------------------------------------------------- atividade */
+  .fluxo { margin-top: 12px; border: 1px solid var(--linha-fraca); border-radius: var(--raio);
+    background: linear-gradient(100deg, var(--carta), #101311); padding: 14px 17px; }
+  .fluxo-cabeca { display: flex; align-items: center; justify-content: space-between;
+    gap: 12px; color: var(--bege-fraco); font-size: 12px; }
+  .ao-vivo { font: 10px/1 var(--mono); text-transform: uppercase; letter-spacing: .1em;
+    border: 1px solid var(--linha); border-radius: 999px; padding: 4px 7px; }
+  .ao-vivo.ligado { color: var(--verde-claro); border-color: rgba(124,154,127,.45); }
+  .ao-vivo.ligado::before { content: ''; display: inline-block; width: 5px; height: 5px;
+    margin-right: 6px; border-radius: 50%; background: var(--verde-claro); }
+  .rota-viva { display: grid; grid-template-columns: auto minmax(80px, 1fr) auto;
+    align-items: center; gap: 13px; margin-top: 14px; }
+  .rota-viva > b { font-size: 14px; }
+  .rota-viva .destino { display: flex; align-items: center; gap: 8px; }
+  .fio { position: relative; height: 1px; background: #30332f; overflow: hidden; }
+  .fio i { position: absolute; top: -2px; width: 5px; height: 5px; border-radius: 50%;
+    background: var(--verde-claro); opacity: .45; }
+  .fio.correndo i { animation: correr 1.4s linear infinite; opacity: 1;
+    box-shadow: 0 0 9px rgba(124,154,127,.8); }
+  .fluxo p, .fluxo-vazio { margin: 10px 0 0; color: var(--suave); font-size: 13px; }
+  .fluxo-vazio { margin: 0; }
+  @keyframes correr { from { left: -6px; } to { left: 100%; } }
+
+  .atividade { border-top: 1px solid var(--linha-fraca); }
+  .atividade-linha { display: grid; grid-template-columns: 8px 18px minmax(180px, 1fr) auto;
+    gap: 10px; align-items: center; padding: 10px 4px; border-bottom: 1px solid var(--linha-fraca); }
+  .atividade-estado { width: 7px; height: 7px; border-radius: 50%; background: var(--bege-fraco); }
+  .atividade-estado.ok { background: var(--verde-claro); }
+  .atividade-estado.erro { background: var(--ruim); }
+  .atividade-estado.rodando { background: var(--ambar); animation: pulsar 1.1s ease-in-out infinite; }
+  .atividade-quem b, .atividade-tempo b { display: block; font-size: 13px; font-weight: 550; }
+  .atividade-quem small, .atividade-tempo small { display: block; color: var(--bege-fraco);
+    font-size: 12px; margin-top: 1px; }
+  .atividade-tempo { text-align: right; font-family: var(--mono); }
+  .atividade-tempo b { font-weight: 450; }
+  .agora { color: var(--ambar); }
+  .cota { color: var(--bege-fraco); white-space: nowrap; }
+  @keyframes pulsar { 50% { opacity: .3; transform: scale(.72); } }
+
   /* -------------------------------------------------------------- abas e botoes */
   .abas { display: flex; gap: 7px; margin-bottom: 16px; flex-wrap: wrap; }
   .aba {
     font: inherit; font-size: 13px; padding: 6px 13px; border-radius: 999px;
     border: 1px solid var(--linha); background: transparent; color: var(--suave); cursor: pointer;
   }
-  /* O seletor de idioma fica no pe da barra, perto do pulso: e configuracao
-     que se toca uma vez, nao navegacao. */
+  /* Seletor de idioma */
   .idioma { display: flex; align-items: center; flex-wrap: wrap; gap: 6px;
     margin-top: auto; padding: 14px 0 10px; border-top: 1px solid var(--linha-fraca); }
   .idioma .dica { width: 100%; margin-bottom: 2px; }
@@ -200,13 +246,11 @@
   .aba[aria-pressed="true"] { background: rgba(94,122,97,.16); border-color: var(--verde);
     color: var(--bege); font-weight: 600; }
 
-  /* Marca de "já chegou chamada daqui", na própria aba: sem isso, descobrir de
-     onde veio tráfego exigia clicar em cada uma. */
+  /* Marca conexão recente direto na aba. */
   .ponto-ok { display: inline-block; width: 6px; height: 6px; border-radius: 50%;
     background: var(--verde-claro); vertical-align: middle; margin-left: 5px; }
 
-  /* A linha que responde "colei no lugar certo?". Até ela existir, a resposta
-     vinha do primeiro erro dentro do agente. */
+  /* Estado de conexão da ferramenta. */
   .conexao { font-size: 14px; color: var(--suave); margin: 14px 0 0;
     padding: 10px 13px; border-radius: 9px; border: 1px solid var(--linha-fraca);
     background: var(--carta-alta); max-width: 66ch; line-height: 1.6; }
@@ -235,10 +279,7 @@
   }
   input:focus, select:focus { border-color: var(--verde); }
 
-  /* Navegar por teclado era as cegas: o CSS inteiro tinha uma regra de foco, e
-     ela so cobria campo de texto. `:focus-visible` em vez de `:focus` para o
-     anel nao aparecer em clique de mouse, so quando ele serve para alguma
-     coisa. */
+  /* Foco visível para navegação por teclado. */
   a:focus-visible,
   button:focus-visible,
   summary:focus-visible,
@@ -249,7 +290,7 @@
     outline-offset: 2px;
     border-radius: 6px;
   }
-  /* O anel do navegador desenha quadrado por cima de coisa redonda. */
+  /* Mantém foco redondo em controles redondos. */
   .aba:focus-visible, .selo:focus-visible { border-radius: 999px; }
   input::placeholder { color: var(--bege-fraco); }
 
@@ -300,8 +341,7 @@
   }
   .prov:hover { border-color: var(--linha); }
   .prov.arrastando { opacity: .4; }
-  /* "Fora da cadeia" nao e "ilegivel": em opacidade baixa o nome sumia
-     justamente na tela onde se escolhe qual usar. */
+  /* Fora da cadeia continua legível. */
   .prov.fora { background: transparent; border-style: dashed; }
   .prov.fora .quem { color: var(--suave); }
   .prov .quem { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -365,9 +405,7 @@
   .cred .paga { display: flex; align-items: center; gap: 7px; font-size: 13px; color: var(--suave); }
   .cred .paga input { accent-color: var(--ambar); }
 
-  /* A marca de paga e da CHAVE, nao da variavel: duas chaves da mesma conta
-     podem ser uma gratuita e uma paga, e a marca em cima dizia que as duas
-     eram pagas. */
+  /* A marca de paga é da chave, não da variável inteira. */
   .chaves { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
   .chave {
     display: flex; align-items: center; gap: 9px; padding: 6px 7px 6px 12px;
@@ -450,6 +488,21 @@
   .ping input[type=checkbox] { accent-color: var(--verde-claro); }
 
   /* ------------------------------------------------------------------- uso */
+  .periodos { margin-top: -13px; }
+  .tendencia { margin: 12px 0 0; border: 1px solid var(--linha-fraca);
+    border-radius: var(--raio); background: var(--carta); padding: 13px 16px 9px; }
+  .tendencia-topo, .tendencia-eixo { display: flex; justify-content: space-between;
+    align-items: center; gap: 12px; color: var(--bege-fraco); font-size: 12px; }
+  .tendencia-topo span { text-transform: uppercase; letter-spacing: .08em; }
+  .tendencia-topo b { color: var(--suave); font-weight: 500; }
+  .tendencia svg { display: block; width: 100%; height: 150px; margin-top: 5px; overflow: visible; }
+  .tendencia svg line { stroke: var(--linha); stroke-width: 1; }
+  .tendencia svg polygon { fill: url(#area-verde); }
+  .tendencia svg polyline { fill: none; stroke: var(--verde-claro); stroke-width: 2;
+    stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke;
+    stroke-dasharray: 1200; animation: desenhar-linha .8s ease-out both; }
+  .tendencia-eixo { font-family: var(--mono); font-size: 11px; margin-top: -3px; }
+  @keyframes desenhar-linha { from { stroke-dashoffset: 1200; } to { stroke-dashoffset: 0; } }
   .calendario { overflow-x: auto; padding-bottom: 6px; }
   .calendario .quadro { display: grid; grid-template-columns: auto auto;
     grid-template-rows: auto auto; gap: 6px 8px; width: max-content; }
@@ -458,12 +511,10 @@
   .calendario .semana { grid-row: 2; display: grid; grid-template-rows: repeat(7, 12px);
     gap: 3px; font-size: 11px; color: var(--bege-fraco); text-align: right; }
   .calendario .semana span { line-height: 12px; }
-  /* `repeat(N, 12px)`, nao colunas automaticas: com `1fr` elas esticavam para
-     preencher a largura e a grade virava quadrados soltos com buraco no meio. */
+  /* Colunas fixas preservam o formato de calendário. */
   .calendario .malha { grid-row: 2; display: grid; grid-template-rows: repeat(7, 12px);
     grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: 12px; gap: 3px; }
-  /* O dia vazio precisa SER um quadrado: perto demais do fundo, ele sumia e a
-     grade parecia ter falhas onde so havia dia sem uso. */
+  /* Dia sem uso continua visível como quadrado. */
   .calendario i { width: 12px; height: 12px; border-radius: 3px; display: block;
     background: #1E1F23; }
   .calendario i.fora { visibility: hidden; }
@@ -493,8 +544,7 @@
   .gasto .detalhe { color: var(--suave); font: 12px/1.45 var(--mono);
     min-width: 105px; text-align: right; }
 
-  /* Sem isto TODAS as telas renderizam empilhadas e a troca de aba vira
-     rolagem. Foi o que a reescrita do estilo derrubou. */
+  /* Esconde telas inativas. */
   .oculto { display: none !important; }
 
   /* ---------------------------------------------------------------- credito */
@@ -507,21 +557,33 @@
   .credito .valor.baixo { color: var(--ambar); }
 
   /* --------------------------------------------------------- 30 dias por dia */
+  .historico { min-width: 0; max-width: 100%; overflow: hidden; }
+  .historico-legenda { display: flex; flex-wrap: wrap; gap: 10px 18px;
+    align-items: center; margin: 0 0 10px; color: var(--bege-fraco); font-size: 12px; }
+  .historico-legenda span { display: inline-flex; align-items: center; gap: 6px; }
+  .historico-legenda i { width: 11px; height: 11px; border-radius: 2px;
+    background: #1E1F23; display: block; }
+  .historico-legenda i[data-s="ok"] { background: var(--verde); }
+  .historico-legenda i[data-s="atencao"] { background: var(--ambar); }
+  .historico-legenda i[data-s="ruim"] { background: var(--ruim); }
   .linhadia { border: 1px solid var(--linha-fraca); border-radius: var(--raio);
-    padding: 14px 16px; background: var(--carta); }
+    padding: 14px 16px; background: var(--carta); min-width: 0; overflow: hidden; }
   .linhadia .topo { display: flex; align-items: center; gap: 10px; font-size: 14px; }
   .linhadia .topo > span:first-of-type { flex: 1; }
   .linhadia .up { font-family: var(--mono); font-size: 14px;
     font-variant-numeric: tabular-nums; color: var(--verde-claro); }
   .linhadia .up.baixo { color: var(--ambar); }
-  .linhadia .dias { display: flex; gap: 2px; margin-top: 12px; }
+  .linhadia .dias { display: flex; gap: 2px; margin-top: 12px; min-width: 0; }
   .linhadia .dias i { flex: 1; height: 18px; border-radius: 2px; background: #1E1F23; display: block; }
   .linhadia .dias i[data-s="ok"] { background: var(--verde); }
   .linhadia .dias i[data-s="atencao"] { background: var(--ambar); }
   .linhadia .dias i[data-s="ruim"] { background: var(--ruim); }
   .linhadia .legenda { display: flex; justify-content: space-between; margin-top: 8px;
-    font-size: 12px; color: var(--bege-fraco); }
+    gap: 8px; font-size: 12px; color: var(--bege-fraco); min-width: 0; }
   .linhadia .legenda em { font-style: normal; }
+  .linhadia .legenda em:nth-child(2) { min-width: 0; text-align: center; }
+  .linhadia .legenda em:first-child,
+  .linhadia .legenda em:last-child { flex: none; }
 
   /* --------------------------------------------------------------- conectar */
   pre {
@@ -531,8 +593,7 @@
   }
   .arquivo { font-family: var(--mono); font-size: 13px; color: var(--bege-fraco); margin: 0 0 9px; }
 
-  /* A barra de rolagem tambem e da marca: a do sistema entrava branca no tema
-     escuro e cortava a pagina ao meio. */
+  /* Barra de rolagem no tema escuro. */
   * { scrollbar-width: thin; scrollbar-color: #2E3036 transparent; }
   ::-webkit-scrollbar { width: 10px; height: 10px; }
   ::-webkit-scrollbar-track { background: transparent; }
@@ -547,42 +608,45 @@
     nav .rodape { margin-top: 0; padding: 0 0 0 14px; border-top: 0;
       border-left: 1px solid var(--linha-fraca); white-space: nowrap; }
     .marca { padding: 0 12px 0 4px; }
+    .nav-grupo { display: none; }
     main { padding: 24px 20px 70px; }
-    /* O seletor de idioma estava preso no pe de uma barra que virou linha. */
+    /* Idioma na barra horizontal. */
     .idioma { margin: 0 0 0 auto; padding: 0 14px; border-top: 0;
       border-left: 1px solid var(--linha-fraca); }
     .idioma .dica { display: none; }
   }
 
-  /* Telefone. Antes daqui havia um corte so, em 860px, e abaixo dele a tabela
-     da fila empurrava a pagina para os lados. */
+  /* Telefone */
   @media (max-width: 560px) {
     main { padding: 20px 14px 60px; }
     h1 { font-size: 22px; }
     .cabeca p { font-size: 13px; }
     .escolhas { grid-template-columns: 1fr; }
+    .mapa-rotas { grid-template-columns: 1fr; }
+    .rota-ou { justify-self: center; }
     .escolha:nth-child(odd) { border-right: 0; }
     .lista-cadeia li { grid-template-columns: 22px 1fr auto; }
     .lista-cadeia code { display: none; }
 
-    /* A tabela rola dentro da propria caixa, em vez de alargar a pagina. */
+    /* Tabelas rolam dentro da caixa. */
     .carta { overflow-x: auto; }
     table { min-width: 520px; }
 
-    /* Quatro numeros lado a lado viravam quatro colunas de 60px. */
+    /* Números do topo em duas colunas. */
     .placar { grid-template-columns: 1fr 1fr; }
     .placar div:nth-child(odd) { border-right: 1px solid var(--linha-fraca); }
 
-    /* Formulario de conta em coluna: tres campos lado a lado nao cabem. */
+    /* Formulário de conta em coluna. */
     #form-conta { grid-template-columns: 1fr; }
 
-    /* O calendario de uso tem 53 semanas; deixa rolar em vez de espremer. */
+    /* Calendário rola em vez de espremer. */
     .calendario { overflow-x: auto; }
   }
 
-  /* Quem prefere texto maior no sistema. A escala acima ja e o minimo
-     confortavel; isto e para quem pediu mais. */
   @media (prefers-reduced-motion: no-preference) {
     html { scroll-behavior: smooth; }
   }
   @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+  @media (prefers-reduced-motion: reduce) {
+    .fio.correndo i, .atividade-estado.rodando, .tendencia svg polyline { animation: none !important; }
+  }

@@ -1,21 +1,9 @@
-"""Como o roteador reage ao erro de um provedor — a tabela, nao o algoritmo.
-
-Estava em Python: `classify_error` com if/elif e cinco constantes de cooldown.
-Mas isto e politica, nao algoritmo. O que conta como "sem credito" muda quando
-um provedor troca a redacao da mensagem, e o tempo certo de espera muda por
-instalacao e por plano contratado. Nenhuma das duas coisas deveria exigir uma
-versao nova.
-
-A tabela vem do YAML do proprio Robin (`routing.erros`). Sem ela, valem os
-padroes daqui — o roteador nunca fica sem saber o que fazer com um erro.
-"""
+"""Tabela de classificação de erros e cooldowns."""
 from __future__ import annotations
 
 from typing import Any, Dict, Mapping, Optional, Tuple
 
-# A ORDEM importa: "sem credito" precisa ser visto antes de "cota", porque a
-# mensagem de credito esgotado as vezes tambem cita quota — e tratar dinheiro
-# acabado como rate limit faz o roteador insistir em quem nao vai voltar.
+# A ordem importa: crédito esgotado pode citar quota.
 REGRAS_PADRAO: Tuple[Tuple[str, Tuple[str, ...]], ...] = (
     ("credit", ("402", "insufficient", "payment required", "billing", "out of credit",
                 "credits", "exceeded your current quota", "not enough balance", "spend limit")),
@@ -63,8 +51,7 @@ def configurar(bruto: Optional[Mapping[str, Any]]) -> None:
 
 
 def classificar(exc: Exception) -> str:
-    """Tipo do erro. A tabela e lida de cima para baixo; a primeira que casa
-    decide, e cada tipo tem consequencia diferente no cooldown."""
+    """Tipo do erro, pela primeira regra que casar."""
     texto = str(exc).lower()
     for tipo, termos in _REGRAS:
         if any(termo in texto for termo in termos):
@@ -73,11 +60,7 @@ def classificar(exc: Exception) -> str:
 
 
 def cooldown_de(tipo: str, repeticoes: int = 1) -> float:
-    """Segundos de espera para este tipo de falha.
-
-    Falha repetida avanca um degrau da escala e o ultimo se mantem: insistir
-    no mesmo intervalo depois do terceiro 429 seguido so gera mais 429.
-    """
+    """Segundos de espera para este tipo de falha."""
     valor = _COOLDOWNS.get(tipo, COOLDOWN_PADRAO["other"])
     if isinstance(valor, tuple):
         return valor[min(max(repeticoes, 1) - 1, len(valor) - 1)]

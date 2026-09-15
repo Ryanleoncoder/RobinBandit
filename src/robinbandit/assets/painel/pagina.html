@@ -14,12 +14,15 @@
       <img src="logos/robinbandit.png" alt="">
       <span>ROBIN<b>BANDIT</b></span>
     </div>
+    <span class="nav-grupo" data-t="nav.operar">Operar</span>
     <button type="button" data-tela="agora" aria-current="page"><span class="marcador"></span><span data-t="nav.agora">Agora</span></button>
+    <button type="button" data-tela="uso"><span class="marcador"></span><span data-t="nav.uso">Uso</span></button>
+    <span class="nav-grupo" data-t="nav.configurar">Configurar</span>
     <button type="button" data-tela="provedores"><span class="marcador"></span><span data-t="nav.provedores">Provedores</span></button>
     <button type="button" data-tela="modelos"><span class="marcador"></span><span data-t="nav.modelos">Modelos</span></button>
     <button type="button" data-tela="credenciais"><span class="marcador"></span><span data-t="nav.credenciais">Credenciais</span></button>
     <button type="button" data-tela="janelas"><span class="marcador"></span><span data-t="nav.janelas">Janelas</span></button>
-    <button type="button" data-tela="uso"><span class="marcador"></span><span data-t="nav.uso">Uso</span></button>
+    <span class="nav-grupo" data-t="nav.integrar">Integrar</span>
     <button type="button" data-tela="conectar"><span class="marcador"></span><span data-t="nav.conectar">Conectar</span></button>
     <div class="idioma" id="idioma"></div>
     <div class="rodape" id="pulso" data-t="comum.lendo">lendo…</div>
@@ -33,6 +36,10 @@
       </div>
       <div id="inicio"></div>
       <div class="placar" id="placar"></div>
+      <div class="fluxo" id="fluxo"></div>
+      <h2 id="titulo-atividade"><span data-t="agora.atividade">Atividade recente</span> <span class="risco"></span></h2>
+      <p class="nota-local" id="nota-atividade" data-t="agora.atividade_nota">Só metadados operacionais desta execução. Conversas não são guardadas aqui.</p>
+      <div class="atividade" id="atividade"></div>
       <h2><span data-t="agora.fila">A fila de agora</span> <span class="risco"></span></h2>
       <div class="carta" id="ordem"></div>
       <h2><span data-t="agora.credito">Crédito restante</span> <span class="risco"></span></h2>
@@ -47,7 +54,22 @@
         <p data-t="prov.intro">Escolha a política da fila. Os provedores disponíveis continuam
            protegidos por saúde e cooldown em todos os modos.</p>
       </div>
-      <h2><span data-t="prov.como_decidir">Rota normal</span> <span class="risco"></span></h2>
+      <div class="mapa-rotas" aria-label="Rotas disponíveis">
+        <article class="rota-tipo principal">
+          <span class="rota-etiqueta" data-t="prov.rota_padrao">padrão</span>
+          <strong data-t="prov.normal">Normal</strong>
+          <p data-t="prov.normal_desc">Toda chamada entra aqui. Você escolhe abaixo como ordenar a fila.</p>
+          <code>sem header</code>
+        </article>
+        <span class="rota-ou" data-t="prov.ou">ou</span>
+        <article class="rota-tipo">
+          <span class="rota-etiqueta" data-t="prov.rota_opcional">por chamada</span>
+          <strong data-t="prov.reforcado">Reforçado</strong>
+          <p data-t="prov.reforcado_desc">Tenta sua lista preferida e, se ela falhar, volta para a rota normal.</p>
+          <code>X-RobinBandit-Mode: reinforced</code>
+        </article>
+      </div>
+      <h2><span data-t="prov.como_decidir">Como a rota normal decide</span> <span class="risco"></span></h2>
       <div class="escolhas" id="estrategia"></div>
       <p class="como"><span data-t="prov.normal_header">Esta é a rota padrão, usada sem header ou com</span>
          <code>X-RobinBandit-Mode: normal</code>.</p>
@@ -81,7 +103,7 @@
            ter mais de uma conta, e o rotador alterna entre elas quando uma bate a cota.</p>
       </div>
       <p class="recado" id="recado-cred"></p>
-      <div class="trazer">
+      <div class="trazer" id="trazer-ambiente">
         <div>
           <strong data-t="cred.so_ambiente">Chaves que estão só no ambiente</strong>
           <p><span data-t="cred.copie_1">Copie para o cofre do RobinBandit e ele deixa de depender do</span>
@@ -123,8 +145,10 @@
         <h1 data-t="uso.titulo">Uso e custo</h1>
         <p data-t="uso.intro">Acompanhe chamadas, tokens de entrada e saída e o custo informado pelo provedor.</p>
       </div>
+      <div class="abas periodos" id="uso-periodos" aria-label="Período"></div>
       <div class="placar" id="uso-numeros"></div>
-      <h2><span data-t="uso.ano">Seu ano</span> <span class="risco"></span></h2>
+      <div class="tendencia" id="uso-tendencia"></div>
+      <h2><span id="uso-periodo-titulo" data-t="uso.ano">Seu ano</span> <span class="risco"></span></h2>
       <div class="calendario" id="uso-calendario"></div>
       <details id="uso-detalhe">
         <summary class="dica" style="cursor:pointer;margin-top:26px" data-t="uso.por_provedor">Abrir por provedor</summary>

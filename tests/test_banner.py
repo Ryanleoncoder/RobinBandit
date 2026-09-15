@@ -3,7 +3,7 @@ import sys
 
 # A linha de comando mora em `cli.py`; `__main__` so a chama.
 from robinbandit import cli
-from robinbandit import _banner
+from robinbandit.ui import _banner
 
 
 class _TTY:
