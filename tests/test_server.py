@@ -4,7 +4,7 @@ import pytest
 fastapi = pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient
 
-from robinbandit import ProviderRouter
+from robinbandit import ProviderRouter, RobinConfig
 from robinbandit.server import create_app
 
 
@@ -59,6 +59,32 @@ def test_modo_headless_mantem_api_e_desliga_interfaces():
     assert c.get("/docs").status_code == 404
     assert c.get("/redoc").status_code == 404
     assert c.get("/openapi.json").status_code == 404
+
+
+def test_troca_de_modelos_atualiza_provedor_sem_reiniciar(tmp_path, monkeypatch):
+    monkeypatch.setenv("ROBINBANDIT_HOME", str(tmp_path))
+    provider = _Prov()
+    provider.models = ["modelo-antigo"]
+    config = RobinConfig.from_mapping({
+        "providers": {"alpha": {"models": ["modelo-base", "modelo-novo"]}},
+    })
+    c = TestClient(create_app([provider], ProviderRouter(), config=config))
+
+    resposta = c.put(
+        "/config/modelos",
+        json={"provedor": "alpha", "modelos": ["modelo-novo"]},
+    )
+
+    assert resposta.status_code == 200
+    assert resposta.json()["aplicada_agora"] is True
+    assert provider.models == ["modelo-novo"]
+
+    restaurada = c.put(
+        "/config/modelos",
+        json={"provedor": "alpha", "modelos": []},
+    )
+    assert restaurada.json()["modelos_efetivos"] == ["modelo-base", "modelo-novo"]
+    assert provider.models == ["modelo-base", "modelo-novo"]
 
 
 def test_resposta_no_formato_openai():

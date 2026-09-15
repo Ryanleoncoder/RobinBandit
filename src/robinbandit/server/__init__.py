@@ -603,7 +603,28 @@ def create_app(
                 payload.provedor, payload.modelos)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
-        return {"provedor": payload.provedor, "modelos": escolhidos}
+
+        # Persistir sem atualizar a instancia deixava o painel dizer que a
+        # mudanca foi feita, mas o processo continuava usando os modelos
+        # anteriores ate reiniciar. Lista vazia remove o override e restaura o
+        # catalogo base imediatamente.
+        efetivos = escolhidos
+        if not efetivos and config is not None:
+            efetivos = config.provider_models(payload.provedor)
+        aplicados = []
+        alvo = str(payload.provedor or "").strip().lower()
+        for provider in providers:
+            nome = str(getattr(provider, "name", "") or "").strip().lower()
+            if nome != alvo or not hasattr(provider, "models"):
+                continue
+            provider.models = list(efetivos)
+            aplicados.append(nome)
+        return {
+            "provedor": payload.provedor,
+            "modelos": escolhidos,
+            "modelos_efetivos": efetivos,
+            "aplicada_agora": bool(aplicados),
+        }
 
     @app.get("/saldo")
     async def saldo() -> Dict[str, Any]:
