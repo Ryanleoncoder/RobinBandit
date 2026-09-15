@@ -35,6 +35,28 @@ def iniciar_contagem() -> None:
     })
 
 
+def custo_estimado(modelo, uso, catalogo=None):
+    """Custo em dolares quando ha preco publicado para o modelo.
+
+    Sem preco conhecido devolve ``None``: zero significaria gratuito e seria
+    uma informacao falsa para modelos cujo valor apenas nao foi catalogado.
+    """
+    if not uso or not modelo:
+        return None
+    chave = str(modelo).split(":", 1)[-1]
+    precos = (catalogo or {}).get(chave)
+    if not precos:
+        return None
+    entrada = precos.get("prompt_per_million")
+    saida = precos.get("completion_per_million")
+    if entrada is None and saida is None:
+        return None
+    total = 0.0
+    total += (uso.get("entrada") or 0) / 1_000_000 * float(entrada or 0)
+    total += (uso.get("saida") or 0) / 1_000_000 * float(saida or 0)
+    return round(total, 6)
+
+
 def contagem_do_turno():
     uso = _USO_DO_TURNO.get()
     # Omite campos que o provedor não informou.
