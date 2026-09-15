@@ -256,7 +256,11 @@ def build_provider(
         provider = GeminiProvider(api_key, configured_models)
     elif adapter == "openrouter":
         from .openrouter_provider import OpenRouterProvider
-        provider = OpenRouterProvider(api_key, configured_models)
+        provider = OpenRouterProvider(
+            api_key,
+            configured_models,
+            extra_headers=dict(spec.get("extra_headers") or {}),
+        )
     elif adapter in {"anthropic", "claude"}:
         from .claude_provider import ClaudeProvider
         provider = ClaudeProvider(api_key, configured_models)

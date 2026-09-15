@@ -135,9 +135,18 @@ class _RotuloDaChave(BaseModel):
 
 def create_app(
     providers: List[Any], router, cache=None, config=None, activity=None,
+    *,
+    include_interface: bool = True,
+    dependencies: Optional[List[Any]] = None,
 ) -> FastAPI:
     """Monta o app HTTP sobre os provedores e o router."""
-    app = FastAPI(title="RobinBandit")
+    app = FastAPI(
+        title="RobinBandit",
+        dependencies=list(dependencies or []),
+        docs_url="/docs" if include_interface else None,
+        redoc_url="/redoc" if include_interface else None,
+        openapi_url="/openapi.json" if include_interface else None,
+    )
     # id da resposta -> (provedor, contexto), para /feedback.
     decisoes: "OrderedDict[str, tuple]" = OrderedDict()
     clientes = _Clientes()
@@ -324,11 +333,18 @@ def create_app(
     async def state() -> Dict[str, Any]:
         return {"providers": router.snapshot(), "pending_feedback": len(decisoes)}
 
-    @app.get("/painel", response_class=HTMLResponse)
     async def painel_html() -> str:
         from ..ui.painel import PAGINA
 
         return PAGINA
+
+    if include_interface:
+        app.add_api_route(
+            "/painel",
+            painel_html,
+            methods=["GET"],
+            response_class=HTMLResponse,
+        )
 
     @app.get("/painel/dados")
     async def painel_dados(request: Request) -> Dict[str, Any]:
