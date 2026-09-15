@@ -36,7 +36,7 @@ in your chain: without credentials or an explicit choice, a provider stays out.
 
 **[See the project page →](https://ryanleoncoder.github.io/RobinBandit/)**
 
-![The current queue in the panel: each provider with state, quality, OK/error, latency and the reason whoever is waiting is waiting](docs/imagens/painel-agora.png)
+![The Now panel with route status, an in-progress attempt, recent activity and the start of the provider queue](docs/imagens/painel-agora.png)
 
 <p align="center"><sub>The panel at <code>/painel</code>: the order right now, and the reason for it.</sub></p>
 
@@ -73,7 +73,7 @@ first in line on the next call.
 
 And a bad day is not hypothetical:
 
-![Thirty days per provider: gemini at 98.46% with two bad days from 429s, claude_code at 97.3% with one 529 overloaded day, cerebras and groq with none](docs/imagens/dia-ruim.png)
+![Thirty days per provider, with a legend for days without calls, healthy days, unstable days and days with failures](docs/imagens/dia-ruim.png)
 
 None of these providers is broken. All four clear 97%. The point is that
 failure is not spread evenly: it clumps into days, with a reason attached
@@ -387,6 +387,12 @@ keeps Codex as Robin's model; tools and side effects stay under the host agent's
 control. The catalog shows only `auth_type: codex_cli` and the configured state,
 never authentication material.
 
+The same Codex installation can be both client and provider without creating a
+loop. The regular client configuration keeps pointing at RobinBandit; the
+outbound `app-server` receives `model_provider="openai"` for that process only.
+The main `~/.codex/config.toml` is not rewritten. This `-c` override is part of
+the [official Codex configuration](https://learn.chatgpt.com/docs/config-file/config-reference).
+
 The YAML field `icon: openai` is a semantic identifier only. The host agent owns
 the visual asset and decides how to present it; Robin stays uncoupled from any
 particular frontend and imposes no image on universal integrations.
@@ -474,7 +480,7 @@ There are seven tabs. What each one solves:
 
 ### Providers: choose the queue policy
 
-![Providers grouped by tier, with a choice between letting the bandit learn and letting the tier decide](docs/imagens/painel-provedores.png)
+![Normal and Reinforced routes plus Adaptive, Tier priority, Fixed list and Round-robin modes](docs/imagens/painel-provedores.png)
 
 A tier is a group, and several providers fit in the same one. The panel offers
 four routing policies:
@@ -509,15 +515,32 @@ A key pasted here goes into the machine's vault with `0600` permissions and
 provider can have more than one account, and the rotator alternates between them
 when one hits its quota. Reinforced accepts several paid or free accounts in a
 chosen order before returning to the normal route. Dedicated stays in the
-Sentury interface, where it pins one provider and one model without fallback.
-Low-level `strict` selection remains available to Python integrations.
+Sentury interface, which already owns that selection. The universal panel does
+not show it. Low-level `strict` selection remains available to integrations.
 
 *Bring into the vault* copies what today only exists in the environment; the
 source `.env` is not touched.
 
+Local data is split by concern under `~/.robinbandit/`:
+
+| File | Contents |
+|---|---|
+| `config.yaml` | personal YAML catalog adjustments |
+| `cofre.json` | secrets, with `0600` permissions |
+| `contas.json` | accounts and the Reinforced queue |
+| `preferencias.json` | language, mode, chain, tiers and selected models |
+| `ranking.json` | router learning |
+| `historico.json` | daily health for the last 60 days |
+| `uso.json` | tokens and provider-reported cost for the last 365 days |
+| `janelas.json` | subscription usage blocks |
+
+An older installation that still mixes preferences into `contas.json` is
+migrated automatically. The destination is written before the old copy is
+cleaned. None of these files belongs in the repository.
+
 ### Usage and cost
 
-![Tokens spent: a 30-day total, call count, and a one-square-per-day calendar](docs/imagens/painel-uso.png)
+![Thirty-day usage with input and output tokens, reported cost, calls, daily trend and calendar](docs/imagens/painel-uso.png)
 
 The panel separates input, output and cached tokens, shows calls, and keeps a
 365-day calendar. USD cost appears when the provider includes it in the

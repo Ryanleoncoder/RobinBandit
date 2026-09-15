@@ -85,7 +85,9 @@
     pre { margin:0; padding:22px; overflow-x:auto; border:1px solid var(--line); border-radius:10px; background:var(--panel); color:#d7d2c9; font-size:13px; line-height:1.75; }
     .comment { color:#777d77; }
     .provider-row { display:flex; align-items:center; gap:28px; flex-wrap:wrap; margin-top:34px; padding-block:20px; border-block:1px solid var(--line); }
-    .provider-row img { width:24px; height:24px; object-fit:contain; opacity:.75; } .provider-note { margin-left:auto; color:var(--muted); font-size:13px; }
+    .provider-row img { width:24px; height:24px; object-fit:contain; opacity:.82; }
+    .provider-row img[src$="groq.svg"],.provider-row img[src$="openrouter.svg"],.provider-row img[src$="ollama.svg"],.provider-row img[src$="cerebras.svg"] { filter:invert(91%) sepia(9%) saturate(413%) hue-rotate(348deg) brightness(102%); }
+    .provider-note { margin-left:auto; color:var(--muted); font-size:13px; }
     footer { padding:28px 0 44px; color:var(--muted); font-size:13px; } footer .wrap { display:flex; justify-content:space-between; gap:20px; } footer a:hover { color:var(--text); }
     @media (max-width:820px) { .links a:not(:last-child){display:none}.hero,.section-head,.quick,.feature{grid-template-columns:1fr;gap:30px}h1{max-width:15ch}.facts,.loop{grid-template-columns:1fr 1fr}.fact:nth-child(3),.step:nth-child(3){border-left:0}.fact:nth-child(n+3),.step:nth-child(n+3){border-top:1px solid var(--line)}.demo-row{grid-template-columns:18px 1fr 78px 62px}.demo-quality,.demo-why{display:none} }
     @media (max-width:580px) { .wrap{width:min(calc(100% - 26px),var(--max))}.hero{padding:58px 0 52px}section.block{padding:66px 0}.shots,.facts,.loop{grid-template-columns:1fr}.fact+.fact,.step+.step{padding-left:0;border-left:0;border-top:1px solid var(--line)}.mode{grid-template-columns:28px 1fr;gap:10px}.mode p{grid-column:2}footer .wrap{flex-direction:column} }
@@ -100,8 +102,8 @@
   <main id="top">
     <div class="wrap">
       <section class="hero">
-        <div><p class="label">Local LLM routing control</p><h1>Your fallback should know what just failed.</h1><p class="lead">RobinBandit routes one OpenAI or Anthropic endpoint across the providers you choose. Use <strong>adaptive learning, strict tiers, a fixed list or round robin</strong>, then inspect every decision locally.</p><div class="actions"><a class="button primary" href="#start">Run it locally</a><a class="button" href="https://github.com/Ryanleoncoder/RobinBandit">Read the code</a></div></div>
-        <figure><div class="screenshot"><img src="imagens/painel-agora.png" alt="RobinBandit current queue with provider health, quality, latency and routing reason"></div><figcaption class="caption">The queue comes from the router itself. The panel does not recompute the decision.</figcaption></figure>
+        <div><p class="label">Local LLM routing control</p><h1>Your fallback should know what just failed.</h1><p class="lead">RobinBandit routes OpenAI, Responses and Anthropic clients across the providers you choose. Use <strong>adaptive learning, strict tiers, a fixed list or round robin</strong>, then inspect recent attempts locally.</p><div class="actions"><a class="button primary" href="#start">Run it locally</a><a class="button" href="https://github.com/Ryanleoncoder/RobinBandit">Read the code</a></div></div>
+        <figure><div class="screenshot"><img src="imagens/painel-agora.png" alt="RobinBandit route status, live attempt, recent activity and provider queue"></div><figcaption class="caption">Live state comes from the router itself. The panel does not recompute the decision.</figcaption></figure>
       </section>
       <div class="facts" aria-label="Project facts"><div class="fact"><b>4</b><span>routing modes</span></div><div class="fact"><b>41</b><span>providers in the catalog</span></div><div class="fact"><b>0</b><span>anonymous providers enabled implicitly</span></div><div class="fact"><b>local</b><span>history, credentials and panel</span></div></div>
     </div>
@@ -121,8 +123,8 @@
     </div></section>
 
     <section class="block"><div class="wrap feature">
-      <div><p class="label">Reinforced calls</p><h2>Spend preferred capacity first. Keep the fallback.</h2><p class="section-copy">Build an ordered queue from any configured account. Put subscriptions first, mix in credits or free accounts, then return to the normal route only if every preferred account fails.</p><p class="note">Available to OpenAI and Anthropic clients with <code>X-RobinBandit-Mode: reinforced</code>.</p></div>
-      <figure><div class="screenshot"><img src="imagens/painel-credenciais.png" alt="Ordered Reinforced account queue above the credential catalog"></div><figcaption>One ordered preference with several accounts and a resilient fallback.</figcaption></figure>
+      <div><p class="label">Reinforced calls</p><h2>Spend preferred capacity first. Keep the fallback.</h2><p class="section-copy">Build an ordered queue from any configured account. Put subscriptions first, mix in credits or free accounts, then return to the normal route only if every preferred account fails.</p><p class="note">Available to OpenAI, Responses and Anthropic clients with <code>X-RobinBandit-Mode: reinforced</code>.</p></div>
+      <figure><div class="screenshot"><img src="imagens/painel-provedores.png" alt="Normal and Reinforced routes with four routing modes in the provider panel"></div><figcaption>One per-call preference with several accounts and a resilient normal fallback.</figcaption></figure>
     </div></section>
 
     <section class="block" id="panel"><div class="wrap">
@@ -137,7 +139,7 @@
 
     <section class="block"><div class="wrap">
       <div class="section-head"><div><p class="label">What is measured</p><h2>Enough detail to act, without fake precision.</h2></div><p class="section-copy">Usage is stored under <code>~/.robinbandit</code>. Tokens are counted whenever a provider reports them. Dollar cost is stored only when the provider includes it, because a stale pricing table is worse than an honest unknown.</p></div>
-      <table class="data-table"><thead><tr><th>Signal</th><th>Used for routing</th><th>Shown in panel</th><th>Retention</th></tr></thead><tbody><tr><td>Input and output tokens</td><td class="yes">Per response</td><td class="yes">30 days and year</td><td>365 days</td></tr><tr><td>Provider cost</td><td>When supplied</td><td class="yes">USD with coverage</td><td>365 days</td></tr><tr><td>Latency and health</td><td class="yes">Every routing decision</td><td class="yes">Current queue</td><td>Learned locally</td></tr><tr><td>Quota and cooldown</td><td class="yes">Avoids the next 429</td><td class="yes">Current state</td><td>Runtime only</td></tr></tbody></table>
+      <table class="data-table"><thead><tr><th>Signal</th><th>Used for routing</th><th>Shown in panel</th><th>Retention</th></tr></thead><tbody><tr><td>Input and output tokens</td><td>No</td><td class="yes">7 days to one year</td><td>365 days</td></tr><tr><td>Provider-reported cost</td><td>No; cost class guides routing</td><td class="yes">USD with coverage</td><td>365 days</td></tr><tr><td>Latency and health</td><td class="yes">Every routing decision</td><td class="yes">Current queue</td><td>Learned locally</td></tr><tr><td>Quota and cooldown</td><td class="yes">Avoids the next 429</td><td class="yes">Current state</td><td>Runtime only</td></tr></tbody></table>
       <p class="note">“Cost not reported” is different from $0.00. RobinBandit keeps that distinction visible.</p>
     </div></section>
 

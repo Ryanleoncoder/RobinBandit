@@ -1,19 +1,4 @@
-"""Em que língua o RobinBandit fala com quem o usa.
-
-A documentação virou bilíngue e a página do projeto está em inglês; quem
-chegasse por lá instalava e encontrava um painel em português. Isto resolve o
-produto — o código continua em português, que é outra conversa e outro dia.
-
-Duas decisões que valem ser explícitas:
-
-**Nome de comando não se traduz.** `serve`, `key`, `providers` ficam em inglês
-como em qualquer CLI — ninguém escreve `git confirmar`. O que muda de língua é
-o que a ferramenta responde, não o que se digita nela.
-
-**O padrão é o idioma do sistema.** Quem roda em português recebe português sem
-configurar nada; quem não, recebe inglês. `robinbandit language pt` fixa a
-escolha quando a detecção erra ou quando se prefere o contrário.
-"""
+"""Idioma usado nas respostas da CLI e do painel."""
 from __future__ import annotations
 
 import locale
@@ -23,9 +8,7 @@ from typing import Dict, Optional
 IDIOMAS = ("pt", "en")
 PADRAO = "en"
 
-# A tradução vive num dicionário e não em arquivos .po: são poucas centenas de
-# frases e um catálogo gettext traria uma etapa de compilação para um projeto
-# que se orgulha de não ter nenhuma.
+# Traduções pequenas ficam em dicionário para evitar etapa de compilação.
 TEXTOS: Dict[str, Dict[str, str]] = {
     # --- linha de comando: ajuda ---
     "cli.desc": {
@@ -220,18 +203,13 @@ TEXTOS: Dict[str, Dict[str, str]] = {
 
 
 def _do_sistema() -> str:
-    """O idioma da máquina, quando ninguém escolheu.
-
-    Preferir português para quem já está em português evita obrigar metade dos
-    usuários a configurar algo antes de ler a primeira tela.
-    """
+    """Idioma da máquina quando ninguém escolheu."""
     for variavel in ("ROBINBANDIT_IDIOMA", "LANGUAGE", "LC_ALL", "LANG"):
         valor = os.environ.get(variavel, "")
         if valor[:2].lower() in IDIOMAS:
             return valor[:2].lower()
     try:
-        # getlocale não levanta em sistema sem locale configurado; getdefaultlocale
-        # está a caminho da remoção desde o 3.11.
+        # getdefaultlocale está a caminho da remoção desde o 3.11.
         atual = locale.getlocale()[0] or ""
     except (ValueError, TypeError):
         atual = ""
@@ -243,15 +221,10 @@ def _do_sistema() -> str:
 
 
 def _do_yaml() -> str:
-    """O `idioma:` declarado na configuração, se houver uma legível.
-
-    Ler o YAML aqui é oportunista: o extra que o interpreta é opcional, e a
-    tradução não pode depender dele — `robinbandit key list` tem que funcionar
-    numa instalação sem PyYAML.
-    """
+    """`idioma:` declarado na configuração, se houver YAML legível."""
     try:
-        from .bootstrap import achar_config
-        from .config import RobinConfig
+        from ..bootstrap import achar_config
+        from ..config import RobinConfig
 
         valor = str(RobinConfig.from_yaml(achar_config()).idioma or "").strip().lower()
         return valor if valor in IDIOMAS else ""
@@ -260,14 +233,9 @@ def _do_yaml() -> str:
 
 
 def escolhido() -> str:
-    """Qual idioma vale agora.
-
-    Precedência **escolha > declaração > sistema**, a mesma de `tier` e da
-    cadeia: o que a pessoa clicou no painel vence o que o arquivo declara, e o
-    arquivo vence o palpite da máquina.
-    """
+    """Idioma efetivo: preferência gravada, YAML, sistema."""
     try:
-        from . import account_config
+        from ..accounts import account_config
 
         gravado = str(account_config.carregar().get("idioma") or "").strip().lower()
         if gravado in IDIOMAS:
@@ -288,7 +256,7 @@ def definir(qual: str) -> str:
     if valor not in IDIOMAS:
         raise ValueError(f"idioma '{qual}' não existe. Use: {', '.join(IDIOMAS)}")
 
-    from . import account_config
+    from ..accounts import account_config
 
     dados = account_config.carregar()
     dados["idioma"] = valor
@@ -297,11 +265,7 @@ def definir(qual: str) -> str:
 
 
 def t(chave: str, idioma: Optional[str] = None, **campos) -> str:
-    """O texto na língua escolhida.
-
-    Chave desconhecida volta como ela mesma, em vez de estourar: uma tradução
-    faltando é um defeito de acabamento, não motivo para derrubar um comando.
-    """
+    """Texto traduzido; chave desconhecida volta como ela mesma."""
     entrada = TEXTOS.get(chave)
     if not entrada:
         return chave

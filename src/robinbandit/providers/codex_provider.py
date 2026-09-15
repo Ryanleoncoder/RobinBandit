@@ -1,11 +1,4 @@
-"""Provedor ChatGPT Codex através do ``codex app-server`` oficial.
-
-O RobinBandit não lê, copia ou renova tokens OAuth. O subprocesso do Codex é
-o único dono da autenticação criada por ``codex login`` (arquivo ou keyring).
-Cada chamada usa uma thread efêmera e desabilita ferramentas do runtime: aqui
-o Codex se comporta como provedor de modelo; o loop de ferramentas continua
-pertencendo ao agente hospedeiro (Sentury ou qualquer outro).
-"""
+"""Provedor ChatGPT Codex via ``codex app-server`` oficial."""
 from __future__ import annotations
 
 import asyncio
@@ -36,8 +29,7 @@ _STATUS_CACHE: Dict[str, tuple[float, CodexAuthStatus]] = {}
 _STATUS_TTL_SECONDS = 15.0
 
 
-# O instalador do Codex nem sempre entra no PATH do processo que sobe o
-# servidor; sem isto o provedor aparecia como "nao instalado" com o CLI logado.
+# Locais comuns do CLI quando ele não está no PATH do servidor.
 _LOCAIS_CONHECIDOS = (
     ("~", ".codex", "bin"),
     ("~", ".codex", ".sandbox-bin"),
@@ -86,8 +78,7 @@ def codex_auth_status(binary: str = "codex", *, timeout: float = 5.0) -> CodexAu
             check=False,
             shell=False,
         )
-        # O texto é localizado e pode mudar entre versões; o contrato estável
-        # para automação é o exit code do comando de status.
+        # O contrato estável para automação é o exit code.
         configured = result.returncode == 0
         detail = "autenticado" if configured else "execute: codex login"
         status = CodexAuthStatus(configured, "codex_cli", detail)
@@ -193,6 +184,17 @@ class CodexAppServerClient:
         self.timeout = max(5.0, float(timeout))
         self._next_id = 1
 
+    def _command(self, executable: str) -> List[str]:
+        """Comando isolado do Codex usado como provedor de saída."""
+        # Evita recursão quando o mesmo Codex também usa RobinBandit como cliente.
+        command = [
+            executable, "app-server", "--listen", "stdio://",
+            "-c", 'model_provider="openai"',
+        ]
+        for feature in self._DISABLED_FEATURES:
+            command.extend(["--disable", feature])
+        return command
+
     async def _send(self, process: asyncio.subprocess.Process, message: Dict[str, Any]) -> None:
         if process.stdin is None:
             raise CodexAppServerError("codex app-server encerrou a entrada")
@@ -220,8 +222,7 @@ class CodexAppServerClient:
                 message = json.loads(raw.decode("utf-8", errors="replace"))
             except json.JSONDecodeError:
                 continue
-            # JSON-RPC bidirecional usa espaços de IDs independentes: uma
-            # solicitação do servidor pode coincidir numericamente com a nossa.
+            # JSON-RPC bidirecional tem espaços de IDs independentes.
             if "method" in message and "id" in message:
                 await self._decline_server_request(process, message)
                 continue
@@ -258,9 +259,7 @@ class CodexAppServerClient:
         executable = resolve_codex_binary(self.binary)
         if not executable:
             raise CodexAppServerError("Codex CLI não instalado")
-        command = [executable, "app-server", "--listen", "stdio://"]
-        for feature in self._DISABLED_FEATURES:
-            command.extend(["--disable", feature])
+        command = self._command(executable)
 
         process = await asyncio.create_subprocess_exec(
             *command,
@@ -417,9 +416,7 @@ class CodexAppServerClient:
 class CodexProvider:
     """Adaptador Robin para modelos da assinatura ChatGPT via Codex CLI."""
 
-    # O app-server executa o turno sem ferramentas próprias. Aceitar o campo
-    # na assinatura serve para compatibilidade, mas não preserva tool calls do
-    # cliente Responses; por isso ele não pode atender esse tipo de pedido.
+    # App-server aqui roda sem ferramentas próprias; tool calls ficam no host.
     supports_tools = False
 
     def __init__(

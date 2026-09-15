@@ -4,8 +4,8 @@ from typing import Dict, List, Optional
 
 import httpx
 
-from .credentials import KeyRotator, parse_keys, is_quota_error
-from .token_budget import model_token_budget
+from ..accounts.credentials import KeyRotator, parse_keys, is_quota_error
+from ..catalog.token_budget import model_token_budget
 
 logger = logging.getLogger(__name__)
 

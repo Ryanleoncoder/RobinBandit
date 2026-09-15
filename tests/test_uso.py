@@ -1,4 +1,4 @@
-from robinbandit import uso
+from robinbandit.state import uso
 
 
 def test_uso_separa_entrada_saida_e_custo_informado():

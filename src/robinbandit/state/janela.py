@@ -1,22 +1,4 @@
-"""A janela de uso das assinaturas — quanto falta para ela virar.
-
-Provedor de API cobra por token e o limite é por minuto: o roteador já lida com
-isso pelo header de rate-limit e pelo cooldown. Assinatura funciona de outro
-jeito. Claude Code e Codex dão um bloco de uso que dura algumas horas e depois
-recomeça do zero. Quando o bloco acaba, o provedor não fica "lento": ele para,
-e volta numa hora que dá para saber.
-
-Nada disso aparecia. O painel mostrava o provedor em cooldown com um prazo que
-o roteador chutou a partir do último erro, e a pergunta que a pessoa realmente
-faz — *quando eu posso usar o Opus de novo?* — não tinha resposta em lugar
-nenhum.
-
-Aqui a janela é contada a partir da primeira chamada dela. É o que o próprio
-CLI faz, e não exige ler credencial nem chamar endpoint de cota: a primeira
-chamada depois de um vazio abre um bloco novo, e o bloco fecha `horas` depois.
-O relógio pode andar alguns minutos à frente do relógio deles; para decidir
-"espero ou troco de provedor" isso basta, e é melhor do que não ter número.
-"""
+"""Janela local de uso para provedores de assinatura."""
 from __future__ import annotations
 
 import json
@@ -31,8 +13,7 @@ logger = logging.getLogger(__name__)
 
 ARQUIVO = "janelas.json"
 
-# O bloco padrão das assinaturas de código hoje. Fica no YAML de quem quiser
-# outro: `janela_horas` no provedor.
+# Padrão sobrescritível por `janela_horas` no provedor.
 HORAS_PADRAO = 5.0
 
 _LOCK = threading.RLock()
@@ -59,15 +40,12 @@ def _gravar(dados: Dict[str, Any]) -> None:
         tmp.write_text(json.dumps(dados, ensure_ascii=False), encoding="utf-8")
         tmp.replace(alvo)
     except OSError as exc:
-        # Perder a contagem da janela é chato; derrubar o turno por causa dela
-        # seria pior.
         logger.debug("Nao consegui gravar a janela: %s", exc)
 
 
 def registrar(provedor: str, *, horas: float = HORAS_PADRAO, ok: bool = True,
               bloqueado: bool = False) -> None:
-    """Conta uma chamada na janela corrente, abrindo uma nova se a anterior
-    venceu."""
+    """Conta uma chamada na janela corrente."""
     chave = str(provedor or "").strip().lower()
     if not chave:
         return
@@ -78,15 +56,13 @@ def registrar(provedor: str, *, horas: float = HORAS_PADRAO, ok: bool = True,
         atual = dados.get(chave) or {}
         inicio = float(atual.get("inicio") or 0.0)
         if not inicio or agora - inicio >= duracao:
-            # Bloco novo. O anterior não interessa mais: ele zerou de verdade.
+            # Bloco novo: o anterior já zerou.
             atual = {"inicio": agora, "chamadas": 0, "erros": 0, "bloqueios": 0}
         atual["horas"] = duracao / 3600.0
         atual["chamadas"] = int(atual.get("chamadas", 0)) + 1
         if not ok:
             atual["erros"] = int(atual.get("erros", 0)) + 1
         if bloqueado:
-            # O que de fato significa "acabou a janela": parou por limite, não
-            # por um erro qualquer.
             atual["bloqueios"] = int(atual.get("bloqueios", 0)) + 1
             atual["ultimo_bloqueio"] = agora
         dados[chave] = atual
@@ -109,7 +85,6 @@ def estado(provedor: str) -> Dict[str, Any]:
     duracao = horas * 3600.0
     usado = agora - inicio
     if usado >= duracao:
-        # Venceu e ninguém chamou desde então: a próxima chamada abre outra.
         return {
             "provedor": chave, "aberta": False, "horas": horas,
             "chamadas": 0, "erros": 0, "bloqueios": 0,
@@ -141,11 +116,7 @@ def _relogio(segundos: float) -> str:
 
 
 def de_assinatura(config: Any) -> Dict[str, float]:
-    """Quais provedores têm janela, e de quantas horas.
-
-    Quem autentica pelo CLI oficial é assinatura por definição: não há chave
-    para cobrar por token. `janela_horas` no YAML muda a duração de um deles.
-    """
+    """Provedores com janela de assinatura e duração em horas."""
     saida: Dict[str, float] = {}
     for chave, spec in (getattr(config, "providers", {}) or {}).items():
         auth = str(spec.get("auth_type") or "").strip().lower()
@@ -165,7 +136,6 @@ def resumo(config: Any) -> List[Dict[str, Any]]:
         linha = estado(chave)
         linha["horas"] = horas
         linhas.append(linha)
-    # Quem está prestes a virar interessa mais: é a decisão de esperar ou não.
     linhas.sort(key=lambda item: (not item["aberta"], item["falta_s"]))
     return linhas
 

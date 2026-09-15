@@ -36,7 +36,7 @@ sem credencial ou uma escolha explícita, o provedor fica de fora.
 
 **[Ver a página do projeto →](https://ryanleoncoder.github.io/RobinBandit/)**
 
-![A fila de agora no painel: cada provedor com estado, qualidade, OK/erro, latência e o motivo de quem está em espera](docs/imagens/painel-agora.png)
+![Painel Agora com estado da rota, tentativa em andamento, atividade recente e início da fila de provedores](docs/imagens/painel-agora.png)
 
 <p align="center"><sub>O painel em <code>/painel</code>: a ordem de agora e o motivo dela.</sub></p>
 
@@ -69,7 +69,7 @@ Se o primeiro provedor começa a devolver `429`, fica lento ou degrada, ele cont
 
 E dia ruim não é hipótese:
 
-![Últimos 30 dias por provedor: gemini com 98,46% e dois dias ruins por 429, claude_code com 97,3% e um dia de 529 overloaded, cerebras e groq sem nenhum dia ruim](docs/imagens/dia-ruim.png)
+![Últimos 30 dias por provedor, com legenda para dias sem chamadas, saudáveis, instáveis e com falha](docs/imagens/dia-ruim.png)
 
 Nenhum desses provedores está quebrado. Os quatro passam de 97%. O ponto é que
 a falha não é distribuída por igual: ela se concentra em dias, com motivo
@@ -364,6 +364,12 @@ mantém o Codex como modelo do Robin; ferramentas e efeitos continuam sob o
 controle do agente hospedeiro. O catálogo mostra apenas `auth_type: codex_cli`
 e o estado configurado, nunca material de autenticação.
 
+O mesmo Codex pode ser cliente e provedor sem formar um ciclo. A configuração
+normal do cliente continua apontando para o RobinBandit; o `app-server` que sai
+como provedor recebe `model_provider="openai"` somente naquele processo. O
+arquivo principal em `~/.codex/config.toml` não é reescrito. Essa sobreposição
+por `-c` faz parte da [configuração oficial do Codex](https://learn.chatgpt.com/docs/config-file/config-reference).
+
 O campo YAML `icon: openai` é apenas um identificador semântico. O agente
 hospedeiro é dono do asset visual e decide como apresentá-lo; o Robin não fica
 acoplado ao frontend do Sentury nem impõe imagem a integrações universais.
@@ -449,7 +455,7 @@ São sete abas. O que cada uma resolve:
 
 ### Provedores: escolha a política da fila
 
-![Provedores por tier, com a escolha entre deixar o bandit aprender e fazer o tier mandar](docs/imagens/painel-provedores.png)
+![Rotas Normal e Reforçada e os modos Adaptativo, Prioridade por tier, Lista fixa e Rodízio](docs/imagens/painel-provedores.png)
 
 Tier é um grupo, e vários provedores cabem no mesmo. A tela oferece quatro
 políticas de roteamento:
@@ -482,16 +488,33 @@ A chave colada aqui vai para o cofre da máquina com permissão `0600` e **nunca
 volta em nenhum payload**, nem o começo, nem o fim. Um provedor pode ter mais
 de uma conta, e o rotador alterna entre elas quando uma bate a cota. Reforçado
 aceita várias contas em ordem, pagas ou gratuitas, antes de voltar à rota
-normal. Dedicado fica na interface do Sentury, onde fixa um provedor e uma LLM
-sem fallback. A separação está em
+normal. A interface universal não mostra Dedicado: o Sentury já controla essa
+seleção na própria interface. A separação técnica está em
 [seleção por chamada](docs/selecao-por-chamada.md).
 
 *Trazer para o cofre* copia o que hoje só existe no ambiente; o `.env` de
 origem não é tocado.
 
+Os dados locais ficam separados por assunto em `~/.robinbandit/`:
+
+| Arquivo | Conteúdo |
+|---|---|
+| `config.yaml` | ajustes pessoais do catálogo YAML |
+| `cofre.json` | segredos, com permissão `0600` |
+| `contas.json` | contas e a fila do Reforçado |
+| `preferencias.json` | idioma, modo, cadeia, tiers e modelos escolhidos |
+| `ranking.json` | aprendizado do roteador |
+| `historico.json` | saúde diária dos últimos 60 dias |
+| `uso.json` | tokens e custo informado dos últimos 365 dias |
+| `janelas.json` | blocos de uso das assinaturas |
+
+Uma instalação antiga que ainda mistura preferências em `contas.json` é
+migrada automaticamente. O destino é gravado antes da cópia antiga ser limpa.
+Nenhum desses arquivos vai para o repositório.
+
 ### Uso e custo
 
-![Tokens gastos: total de 30 dias, chamadas e um calendário de um quadrado por dia](docs/imagens/painel-uso.png)
+![Uso em 30 dias com tokens de entrada e saída, custo informado, chamadas, tendência diária e calendário](docs/imagens/painel-uso.png)
 
 O painel separa tokens de entrada, saída e cache, mostra chamadas e mantém um
 calendário de 365 dias. Custo em USD aparece quando o próprio provedor o inclui
