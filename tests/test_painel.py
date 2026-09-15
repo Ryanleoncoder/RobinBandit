@@ -9,6 +9,7 @@ pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient  # noqa: E402
 
 from robinbandit.ui import cli_tools  # noqa: E402
+from robinbandit.painel import PAGINA as PAGINA_COMPAT  # noqa: E402
 from robinbandit.routing.router import ProviderRouter  # noqa: E402
 from robinbandit.server import create_app  # noqa: E402
 
@@ -19,6 +20,12 @@ class _Fake:
 
     async def complete(self, messages, temperature=0.2):
         return "ok"
+
+
+def test_import_publico_do_painel_continua_compativel():
+    from robinbandit.ui.painel import PAGINA
+
+    assert PAGINA_COMPAT is PAGINA
 
 
 def _cliente():
