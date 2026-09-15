@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="RobinBandit routes LLM calls with adaptive learning, strict tiers, fixed fallback lists or round robin, with local usage and health visibility.">
+  <meta name="description" content="RobinBandit routes LLM calls across your providers and shows the route, health, tokens, cost coverage and quota state in a local panel.">
   <meta name="theme-color" content="#0a0a0c">
   <title>RobinBandit | LLM routing you can inspect</title>
   <link rel="icon" type="image/png" href="robinbandit_logo1.png">
@@ -96,20 +96,20 @@
 <body>
   <header class="topbar"><div class="wrap">
     <a class="brand" href="#top"><img src="robinbandit_logo1.png" alt="">ROBIN<b>BANDIT</b></a>
-    <nav class="links" aria-label="Primary navigation"><a href="#modes">Modes</a><a href="#panel">Panel</a><a href="#how">How it works</a><a href="#start">Quickstart</a><a href="https://github.com/Ryanleoncoder/RobinBandit">GitHub ↗</a></nav>
+    <nav class="links" aria-label="Primary navigation"><a href="#modes">Modes</a><a href="#panel">Panel</a><a href="#how">How it works</a><a href="#start">Quickstart</a><a href="https://github.com/Ryanleoncoder/RobinBandit">GitHub</a></nav>
   </div></header>
 
   <main id="top">
     <div class="wrap">
       <section class="hero">
-        <div><p class="label">Local LLM routing control</p><h1>Your fallback should know what just failed.</h1><p class="lead">RobinBandit routes OpenAI, Responses and Anthropic clients across the providers you choose. Use <strong>adaptive learning, strict tiers, a fixed list or round robin</strong>, then inspect recent attempts locally.</p><div class="actions"><a class="button primary" href="#start">Run it locally</a><a class="button" href="https://github.com/Ryanleoncoder/RobinBandit">Read the code</a></div></div>
+        <div><p class="label">Local LLM router</p><h1>Choose the route. See why it changed.</h1><p class="lead">RobinBandit receives OpenAI, Responses and Anthropic-style calls, tries the providers you enabled, and keeps the decision visible in a local panel.</p><div class="actions"><a class="button primary" href="#start">Run it locally</a><a class="button" href="https://github.com/Ryanleoncoder/RobinBandit">GitHub</a></div></div>
         <figure><div class="screenshot"><img src="imagens/painel-agora.png" alt="RobinBandit route status, live attempt, recent activity and provider queue"></div><figcaption class="caption">Live state comes from the router itself. The panel does not recompute the decision.</figcaption></figure>
       </section>
-      <div class="facts" aria-label="Project facts"><div class="fact"><b>4</b><span>routing modes</span></div><div class="fact"><b>41</b><span>providers in the catalog</span></div><div class="fact"><b>0</b><span>anonymous providers enabled implicitly</span></div><div class="fact"><b>local</b><span>history, credentials and panel</span></div></div>
+      <div class="facts" aria-label="Project facts"><div class="fact"><b>4</b><span>normal-route modes</span></div><div class="fact"><b>41</b><span>providers in the catalog</span></div><div class="fact"><b>0</b><span>providers enabled without consent</span></div><div class="fact"><b>local</b><span>history, credentials and panel</span></div></div>
     </div>
 
     <section class="block" id="modes"><div class="wrap">
-      <div class="section-head"><div><p class="label">Routing modes</p><h2>Use the policy that fits the job.</h2></div><p class="section-copy">Adaptive routing is the default, not a requirement. A production chain, a paid subscription pool and a reproducible test run do not need the same policy. Change modes from the panel and apply them on the next call.</p></div>
+      <div class="section-head"><div><p class="label">Routing modes</p><h2>Pick how the normal route behaves.</h2></div><p class="section-copy">Adaptive routing is the default, but not the only choice. Use tiers when priority matters, a fixed list for predictable tests, or round robin when you want simple rotation.</p></div>
       <div class="mode-list"><div class="mode"><span class="n">01</span><h3>Adaptive</h3><p>Learns from quality, health, latency and quota. It keeps exploring instead of locking onto the first provider that worked.</p></div><div class="mode"><span class="n">02</span><h3>Tier priority</h3><p>Exhausts tier 1 before tier 2. Learning still decides the order inside each tier.</p></div><div class="mode"><span class="n">03</span><h3>Fixed list</h3><p>Uses the exact chain order you set and moves on only after failure or temporary unavailability.</p></div><div class="mode"><span class="n">04</span><h3>Round robin</h3><p>Rotates the first available provider after each real attempt. Opening the panel never moves the cursor.</p></div></div>
     </div></section>
 
@@ -123,12 +123,12 @@
     </div></section>
 
     <section class="block"><div class="wrap feature">
-      <div><p class="label">Reinforced calls</p><h2>Spend preferred capacity first. Keep the fallback.</h2><p class="section-copy">Build an ordered queue from any configured account. Put subscriptions first, mix in credits or free accounts, then return to the normal route only if every preferred account fails.</p><p class="note">Available to OpenAI, Responses and Anthropic clients with <code>X-RobinBandit-Mode: reinforced</code>.</p></div>
-      <figure><div class="screenshot"><img src="imagens/painel-provedores.png" alt="Normal and Reinforced routes with four routing modes in the provider panel"></div><figcaption>One per-call preference with several accounts and a resilient normal fallback.</figcaption></figure>
+      <div><p class="label">Reinforced calls</p><h2>Try preferred accounts first.</h2><p class="section-copy">Reinforced is a per-call route. Put subscriptions, paid credits or free accounts in the order you want. If all of them fail, RobinBandit returns to the normal route.</p><p class="note">Use it from OpenAI, Responses and Anthropic clients with <code>X-RobinBandit-Mode: reinforced</code>.</p></div>
+      <figure><div class="screenshot"><img src="imagens/painel-provedores.png" alt="Normal and Reinforced routes with four routing modes in the provider panel"></div><figcaption>Normal stays default. Reinforced is requested only when a call asks for it.</figcaption></figure>
     </div></section>
 
     <section class="block" id="panel"><div class="wrap">
-      <div class="section-head"><div><p class="label">Operational panel</p><h2>Answers before configuration becomes guesswork.</h2></div><p class="section-copy">Provider authentication and client connection are separate states. The panel names who can answer, which tool has actually sent a request, what was consumed and why a provider moved in the queue.</p></div>
+      <div class="section-head"><div><p class="label">Panel</p><h2>Know what is configured and what actually called.</h2></div><p class="section-copy">Authentication and connection are separate states. The panel shows who can answer, which tool has sent a request, what was consumed and why a provider moved in the queue.</p></div>
       <div class="shots">
         <figure><div class="screenshot"><img src="imagens/painel-provedores.png" alt="Provider routing modes and editable chain order"></div><figcaption><b>Providers.</b> Pick a mode, edit the fixed order and keep the full catalog separate from your active chain.</figcaption></figure>
         <figure><div class="screenshot"><img src="imagens/painel-uso.png" alt="Usage panel with input tokens, output tokens, cost and calls"></div><figcaption><b>Usage.</b> Input, output, cache, calls and provider-reported cost. Unknown price stays unknown instead of looking free.</figcaption></figure>
@@ -138,14 +138,14 @@
     </div></section>
 
     <section class="block"><div class="wrap">
-      <div class="section-head"><div><p class="label">What is measured</p><h2>Enough detail to act, without fake precision.</h2></div><p class="section-copy">Usage is stored under <code>~/.robinbandit</code>. Tokens are counted whenever a provider reports them. Dollar cost is stored only when the provider includes it, because a stale pricing table is worse than an honest unknown.</p></div>
+      <div class="section-head"><div><p class="label">Usage and cost</p><h2>Show the numbers that are real.</h2></div><p class="section-copy">Usage is stored under <code>~/.robinbandit</code>. Tokens are counted when providers report them. Cost is stored only when a provider sends it, so unknown price never looks like free usage.</p></div>
       <table class="data-table"><thead><tr><th>Signal</th><th>Used for routing</th><th>Shown in panel</th><th>Retention</th></tr></thead><tbody><tr><td>Input and output tokens</td><td>No</td><td class="yes">7 days to one year</td><td>365 days</td></tr><tr><td>Provider-reported cost</td><td>No; cost class guides routing</td><td class="yes">USD with coverage</td><td>365 days</td></tr><tr><td>Latency and health</td><td class="yes">Every routing decision</td><td class="yes">Current queue</td><td>Learned locally</td></tr><tr><td>Quota and cooldown</td><td class="yes">Avoids the next 429</td><td class="yes">Current state</td><td>Runtime only</td></tr></tbody></table>
-      <p class="note">“Cost not reported” is different from $0.00. RobinBandit keeps that distinction visible.</p>
+      <p class="note">“Cost not reported” is different from $0.00. The panel keeps that distinction visible.</p>
     </div></section>
 
     <section class="block" id="how"><div class="wrap">
-      <div class="section-head"><div><p class="label">Adaptive loop</p><h2>A decision that changes with evidence.</h2></div><p class="section-copy">In adaptive mode, quality and operational health are separate Beta posteriors. A successful HTTP response does not automatically mean a good answer, and old evidence decays so the router can recover when conditions change.</p></div>
-      <div class="loop"><div class="step"><small>01 / ORDER</small><h3>Score</h3><p>Combine quality, latency, health, tier, cost class, quota and open calls.</p></div><div class="step"><small>02 / CALL</small><h3>Try</h3><p>Call providers in order and preserve a final fallback when everything is degraded.</p></div><div class="step"><small>03 / OBSERVE</small><h3>Classify</h3><p>Distinguish rate limit, credit exhaustion, timeout and other failures.</p></div><div class="step"><small>04 / LEARN</small><h3>Update</h3><p>Record health immediately and quality when your application sends feedback.</p></div></div>
+      <div class="section-head"><div><p class="label">Adaptive loop</p><h2>A route that changes when evidence changes.</h2></div><p class="section-copy">Adaptive mode separates operational health from answer quality. A provider can be online and still produce weak answers, or be good but temporarily blocked by quota.</p></div>
+      <div class="loop"><div class="step"><small>01 / ORDER</small><h3>Score</h3><p>Use quality, latency, health, tier, cost class, quota and open calls.</p></div><div class="step"><small>02 / CALL</small><h3>Try</h3><p>Call providers in order and keep a clear final notice when nobody answers.</p></div><div class="step"><small>03 / OBSERVE</small><h3>Classify</h3><p>Separate rate limit, credit exhaustion, timeout and other failures.</p></div><div class="step"><small>04 / LEARN</small><h3>Update</h3><p>Record health immediately and quality when your app sends feedback.</p></div></div>
     </div></section>
 
     <section class="block" id="start"><div class="wrap quick">
@@ -169,12 +169,12 @@ http://localhost:8000/v1/messages</pre>
     </div></section>
 
     <section class="block"><div class="wrap">
-      <div class="section-head"><div><p class="label">Provider catalog</p><h2>Catalog is possibility. Chain is consent.</h2></div><p class="section-copy">The package knows how to connect to 41 providers, but that does not put all 41 in your route. The active chain starts from explicit configuration or credentials. Anonymous endpoints such as LLM7 require an explicit opt-in too.</p></div>
+      <div class="section-head"><div><p class="label">Provider catalog</p><h2>A catalog is not your active route.</h2></div><p class="section-copy">RobinBandit ships with provider adapters, but a provider only joins your chain when you configure it or add credentials. Anonymous endpoints such as LLM7 still require explicit opt-in.</p></div>
       <div class="provider-row" aria-label="Example providers"><img src="logos/groq.svg" alt="Groq"><img src="logos/gemini.svg" alt="Gemini"><img src="logos/claude_code.svg" alt="Claude Code"><img src="logos/chatgpt_codex.svg" alt="ChatGPT Codex"><img src="logos/openrouter.svg" alt="OpenRouter"><img src="logos/ollama.svg" alt="Ollama"><img src="logos/cerebras.svg" alt="Cerebras"><span class="provider-note">and 34 more in the catalog</span></div>
     </div></section>
   </main>
 
-  <footer><div class="wrap"><span>RobinBandit · MIT</span><span><a href="https://github.com/Ryanleoncoder/RobinBandit">GitHub</a> · <a href="https://github.com/Ryanleoncoder/RobinBandit/blob/main/docs/como-aprende.md">How it learns</a> · <a href="https://github.com/Ryanleoncoder/RobinBandit/issues">Issues</a></span></div></footer>
+  <footer><div class="wrap"><span>RobinBandit MIT</span><span><a href="https://github.com/Ryanleoncoder/RobinBandit">GitHub</a> / <a href="https://github.com/Ryanleoncoder/RobinBandit/blob/main/docs/como-aprende.md">How it learns</a> / <a href="https://github.com/Ryanleoncoder/RobinBandit/issues">Issues</a></span></div></footer>
   <script>
   (function () {
     const queue = document.getElementById('demo-queue');

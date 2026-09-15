@@ -32,7 +32,7 @@
     <section id="tela-agora">
       <div class="cabeca">
         <h1 data-t="agora.titulo">O que está acontecendo</h1>
-        <p data-t="agora.intro">Veja a saúde de quem está disponível, qual modo está ativo e por que a fila ficou nesta ordem.</p>
+        <p data-t="agora.intro">Veja quem pode responder agora, quem está em espera e qual rota está em uso.</p>
       </div>
       <div id="inicio"></div>
       <div class="placar" id="placar"></div>
@@ -51,34 +51,31 @@
     <section id="tela-provedores" class="oculto">
       <div class="cabeca">
         <h1 data-t="prov.titulo">Provedores e rota</h1>
-        <p data-t="prov.intro">Escolha a política da fila. Os provedores disponíveis continuam
-           protegidos por saúde e cooldown em todos os modos.</p>
+        <p data-t="prov.intro">Defina como a rota normal escolhe provedores e quando usar a fila Reforçada por chamada.</p>
       </div>
       <div class="mapa-rotas" aria-label="Rotas disponíveis">
         <article class="rota-tipo principal">
-          <span class="rota-etiqueta" data-t="prov.rota_padrao">padrão</span>
+          <span class="rota-etiqueta" data-t="prov.rota_padrao">sempre ativa</span>
           <strong data-t="prov.normal">Normal</strong>
-          <p data-t="prov.normal_desc">Toda chamada entra aqui. Você escolhe abaixo como ordenar a fila.</p>
+          <p data-t="prov.normal_desc">Usada por padrão. Escolha abaixo se ela aprende, segue tiers, lista fixa ou rodízio.</p>
           <code>sem header</code>
         </article>
         <span class="rota-ou" data-t="prov.ou">ou</span>
         <article class="rota-tipo">
-          <span class="rota-etiqueta" data-t="prov.rota_opcional">por chamada</span>
+          <span class="rota-etiqueta" data-t="prov.rota_opcional">opcional</span>
           <strong data-t="prov.reforcado">Reforçado</strong>
-          <p data-t="prov.reforcado_desc">Tenta sua lista preferida e, se ela falhar, volta para a rota normal.</p>
+          <p data-t="prov.reforcado_desc">Tenta contas preferidas primeiro. Se todas falharem, volta para a rota normal.</p>
           <code>X-RobinBandit-Mode: reinforced</code>
         </article>
       </div>
-      <h2><span data-t="prov.como_decidir">Como a rota normal decide</span> <span class="risco"></span></h2>
+      <h2><span data-t="prov.como_decidir">Modo da rota normal</span> <span class="risco"></span></h2>
       <div class="escolhas" id="estrategia"></div>
-      <p class="como"><span data-t="prov.normal_header">Esta é a rota padrão, usada sem header ou com</span>
+      <p class="como"><span data-t="prov.normal_header">Usada sem header ou com</span>
          <code>X-RobinBandit-Mode: normal</code>.</p>
       <div class="ordem-cadeia" id="ordem-cadeia"></div>
       <div class="abas" id="filtro-provedores"></div>
       <div id="tiers"></div>
-      <p class="como" id="nota-fallback" data-t="prov.ultimo">Se todos falharem, ninguém assume o lugar deles: o RobinBandit
-         devolve um aviso dizendo que nenhum provedor respondeu. Isso não é um
-         provedor de reserva, e por isso não aparece em nenhum tier.</p>
+      <p class="como" id="nota-fallback" data-t="prov.ultimo">Se todos falharem, o RobinBandit devolve um aviso. Esse aviso não é provedor e não entra em tier.</p>
       <div id="reservados"></div>
       <p class="recado" id="recado-prov"></p>
     </section>
@@ -86,9 +83,7 @@
     <section id="tela-modelos" class="oculto">
       <div class="cabeca">
         <h1 data-t="mod.titulo">Modelos de cada provedor</h1>
-        <p data-t="mod.intro">Quando o RobinBandit escolhe um provedor, ele tenta os modelos desta
-           lista de cima para baixo, e para no primeiro que responder. Acrescente
-           um modelo pelo id, ou pergunte ao provedor o que ele tem hoje.</p>
+        <p data-t="mod.intro">Depois de escolher um provedor, o RobinBandit tenta estes modelos de cima para baixo. Adicione um id manualmente ou consulte o catálogo atual do provedor.</p>
       </div>
       <div class="abas" id="filtro-modelos"></div>
       <div id="modelos"></div>
@@ -98,17 +93,14 @@
     <section id="tela-credenciais" class="oculto">
       <div class="cabeca">
         <h1 data-t="cred.titulo">Contas e credenciais</h1>
-        <p data-t="cred.intro">A chave que você colar aqui vai para o cofre desta máquina, com permissão
-           0600. Ela nunca volta na resposta, nem mesmo parcialmente. Um provedor pode
-           ter mais de uma conta, e o rotador alterna entre elas quando uma bate a cota.</p>
+        <p data-t="cred.intro">Chaves ficam no cofre local e nunca voltam na resposta. Você pode ter mais de uma conta por provedor e alternar quando uma bater a cota.</p>
       </div>
       <p class="recado" id="recado-cred"></p>
       <div class="trazer" id="trazer-ambiente">
         <div>
           <strong data-t="cred.so_ambiente">Chaves que estão só no ambiente</strong>
-          <p><span data-t="cred.copie_1">Copie para o cofre do RobinBandit e ele deixa de depender do</span>
-             <code>.env</code> <span data-t="cred.copie_2">do projeto que o hospeda. O arquivo de origem não é
-             tocado, e o que já está no cofre fica como está.</span></p>
+          <p><span data-t="cred.copie_1">Copie para o cofre local para não depender do</span>
+             <code>.env</code> <span data-t="cred.copie_2">do projeto. O arquivo original não é alterado.</span></p>
         </div>
         <button type="button" class="acao" id="btn-importar" data-t="cred.trazer">trazer para o cofre</button>
       </div>
@@ -116,8 +108,7 @@
       <div id="credenciais" data-t="comum.carregando">carregando…</div>
       <details class="somar-conta">
         <summary data-t="cred.add_conta">Adicionar outra conta</summary>
-        <p class="dica" data-t="cred.add_intro">Mesma conta do provedor com outra chave, ou uma segunda conta
-           sua. A chave é guardada pelo nome de variável que você escolher.</p>
+        <p class="dica" data-t="cred.add_intro">Use outra chave do mesmo provedor ou uma segunda conta sua. O nome da variável identifica essa conta.</p>
         <form id="form-conta">
           <select id="conta-prov"></select>
           <input id="conta-id" placeholder="apelido, ex.: groq-2" data-t-ph="cred.apelido" autocomplete="off">
@@ -132,8 +123,7 @@
     <section id="tela-janelas" class="oculto">
       <div class="cabeca">
         <h1 data-t="jan.titulo">Janelas de assinatura</h1>
-        <p data-t="jan.intro">Assinatura não fica lenta quando o uso acaba: ela para e volta numa hora
-           previsível. Veja quanto falta para decidir entre esperar e trocar de provedor.</p>
+        <p data-t="jan.intro">Veja quando uma assinatura volta a responder e decida se vale esperar ou seguir com outro provedor.</p>
       </div>
       <div id="janelas" data-t="comum.carregando">carregando…</div>
       <div class="ping" id="ping"></div>
@@ -143,7 +133,7 @@
     <section id="tela-uso" class="oculto">
       <div class="cabeca">
         <h1 data-t="uso.titulo">Uso e custo</h1>
-        <p data-t="uso.intro">Acompanhe chamadas, tokens de entrada e saída e o custo informado pelo provedor.</p>
+        <p data-t="uso.intro">Acompanhe chamadas, tokens de entrada, tokens de saída e custo quando o provedor informa.</p>
       </div>
       <div class="abas periodos" id="uso-periodos" aria-label="Período"></div>
       <div class="placar" id="uso-numeros"></div>
@@ -160,10 +150,9 @@
     <section id="tela-conectar" class="oculto">
       <div class="cabeca">
         <h1 data-t="con.titulo">Plugar uma ferramenta</h1>
-        <p><span data-t="con.intro_1">Qualquer ferramenta que deixe trocar o endereço da API passa a rotear
-           por aqui. Copie a configuração da sua e cole onde ela indica. No campo</span>
-           <code>model</code> <span data-t="con.intro_2">vai um apelido do seu trabalho, como "codigo" ou "revisao".
-           O RobinBandit aprende separado para cada um.</span></p>
+        <p><span data-t="con.intro_1">Escolha sua ferramenta, copie a configuração e cole onde ela permite trocar a API. No campo</span>
+           <code>model</code> <span data-t="con.intro_2">use um apelido do trabalho, como "codigo" ou "revisao".
+           O aprendizado fica separado por apelido.</span></p>
       </div>
       <div class="abas" id="abas"></div>
       <p class="arquivo" id="arquivo"></p>
