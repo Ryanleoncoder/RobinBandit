@@ -7,17 +7,17 @@ import uuid
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 
-from .clientes import Clientes as _Clientes
+from ..api.clientes import Clientes as _Clientes
 from pydantic import BaseModel, Field
 
 from pathlib import Path
 
-from .routing.chain import ChainProvider
+from ..routing.chain import ChainProvider
 
 
 def pasta_das_logos() -> Path:
     """Pasta de logos empacotada junto do módulo."""
-    return Path(__file__).resolve().parent / "assets" / "providers"
+    return Path(__file__).resolve().parent.parent / "assets" / "providers"
 
 
 # Limita respostas aguardando feedback.
@@ -142,7 +142,7 @@ def create_app(
     decisoes: "OrderedDict[str, tuple]" = OrderedDict()
     clientes = _Clientes()
     app.state.clientes = clientes
-    from .state.atividade import Atividade
+    from ..state.atividade import Atividade
 
     atividade = activity or Atividade()
     # Usado por testes/demos sem expor rota de escrita.
@@ -161,8 +161,8 @@ def create_app(
             )
         if config is None:
             raise HTTPException(400, "Reforçado exige um catálogo configurado")
-        from .providers import build_tier_provider
-        from .routing.selection import RouteSelection
+        from ..providers import build_tier_provider
+        from ..routing.selection import RouteSelection
 
         reforcado = build_tier_provider(config, "ultra")
         return [reforcado, *providers], RouteSelection.hybrid("ultra")
@@ -216,7 +216,7 @@ def create_app(
     @app.post("/v1/messages")
     async def messages(pedido: _PedidoAnthropic, request: Request) -> Any:
         """Endpoint Anthropic usado pelo Claude Code."""
-        from .api import anthropic_api
+        from ..api import anthropic_api
 
         contexto = pedido.model
         clientes.anotar(request.headers.get("user-agent", ""), contexto)
@@ -252,7 +252,7 @@ def create_app(
     @app.post("/v1/responses")
     async def responses(pedido: _PedidoResponses, request: Request) -> Any:
         """Responses API para clientes como Codex CLI."""
-        from .api import responses_api
+        from ..api import responses_api
 
         contexto = pedido.model
         clientes.anotar(request.headers.get("user-agent", ""), contexto)
@@ -326,14 +326,14 @@ def create_app(
 
     @app.get("/painel", response_class=HTMLResponse)
     async def painel_html() -> str:
-        from .ui.painel import PAGINA
+        from ..ui.painel import PAGINA
 
         return PAGINA
 
     @app.get("/painel/dados")
     async def painel_dados(request: Request) -> Dict[str, Any]:
         """Dados agregados que o painel desenha."""
-        from .ui import cli_tools
+        from ..ui import cli_tools
 
         estado = router.snapshot()
         todos = [getattr(p, "name", type(p).__name__) for p in providers]
@@ -446,7 +446,7 @@ def create_app(
         O RobinBandit roteia para qualquer agente, então a configuração dele
         mora aqui — não na tela de quem o hospeda.
         """
-        from .accounts import account_config
+        from ..accounts import account_config
 
         catalogo = getattr(config, "providers", None) or {}
         na_cadeia = [getattr(p, "name", type(p).__name__) for p in providers]
@@ -482,7 +482,7 @@ def create_app(
                 "modelos_proprios": bool(modelos_escolhidos.get(nome)),
             })
 
-        from .ui import idioma as _idioma
+        from ..ui import idioma as _idioma
 
         return {
             "idioma": _idioma.escolhido(),
@@ -521,7 +521,7 @@ def create_app(
 
     @app.put("/config/estrategia")
     async def trocar_estrategia(payload: _Estrategia) -> Dict[str, Any]:
-        from .accounts import account_config
+        from ..accounts import account_config
 
         try:
             escolhida = account_config.definir_estrategia(payload.valor)
@@ -535,7 +535,7 @@ def create_app(
     @app.put("/config/idioma")
     async def trocar_idioma(payload: _Idioma) -> Dict[str, Any]:
         """Define o idioma do painel e da CLI."""
-        from .ui import idioma as _idioma
+        from ..ui import idioma as _idioma
 
         try:
             escolhido = _idioma.definir(payload.valor)
@@ -545,7 +545,7 @@ def create_app(
 
     @app.put("/config/cadeia")
     async def trocar_cadeia(payload: _Cadeia) -> Dict[str, Any]:
-        from .accounts import account_config
+        from ..accounts import account_config
 
         catalogo = getattr(config, "providers", None) or {}
         try:
@@ -569,7 +569,7 @@ def create_app(
 
     @app.put("/config/tier")
     async def trocar_tier(payload: _Tier) -> Dict[str, Any]:
-        from .accounts import account_config
+        from ..accounts import account_config
 
         try:
             account_config.definir_tier_de_provedor(payload.provedor, payload.tier)
@@ -580,7 +580,7 @@ def create_app(
     @app.put("/config/modelos")
     async def trocar_modelos(payload: _Modelos) -> Dict[str, Any]:
         """Define a ordem de tentativa de modelos dentro de um provedor."""
-        from .accounts import account_config
+        from ..accounts import account_config
 
         try:
             escolhidos = account_config.definir_modelos_de_provedor(
@@ -592,7 +592,7 @@ def create_app(
     @app.get("/saldo")
     async def saldo() -> Dict[str, Any]:
         """Credito restante, onde o provedor informa. Nunca a chave."""
-        from .catalog import saldo as _saldo
+        from ..catalog import saldo as _saldo
 
         try:
             return {"contas": await _saldo.consultar(config)}
@@ -602,8 +602,8 @@ def create_app(
     @app.get("/contas")
     async def contas() -> Dict[str, Any]:
         """Contas de cada provedor e seus métodos de autenticação."""
-        from .accounts import account_config
-        from .accounts import catalogo_efetivo
+        from ..accounts import account_config
+        from ..accounts import catalogo_efetivo
 
         if config is None:
             return {"contas": [], "tiers": {}, "alvos": {}, "reforcado": []}
@@ -635,7 +635,7 @@ def create_app(
     @app.post("/contas")
     async def criar_conta(req: _Conta) -> Dict[str, Any]:
         """Declara outra conta do mesmo provedor."""
-        from .accounts import account_config
+        from ..accounts import account_config
 
         try:
             return account_config.salvar_conta({
@@ -648,15 +648,15 @@ def create_app(
     @app.delete("/contas/{conta_id}")
     async def apagar_conta(conta_id: str) -> Dict[str, Any]:
         """Remove a conta declarada, sem apagar a chave do cofre."""
-        from .accounts import account_config
+        from ..accounts import account_config
 
         return {"removida": account_config.remover_conta(conta_id)}
 
     @app.put("/contas/tier")
     async def apontar_tier(req: _TierDaConta) -> Dict[str, Any]:
         """Define qual conta atende um tier de seleção."""
-        from .accounts import account_config
-        from .accounts import catalogo_efetivo
+        from ..accounts import account_config
+        from ..accounts import catalogo_efetivo
 
         if config is None:
             raise HTTPException(status_code=400, detail="sem catalogo carregado")
@@ -670,8 +670,8 @@ def create_app(
     @app.put("/contas/reforcado")
     async def ordenar_reforcado(req: _OrdemDoReforcado) -> Dict[str, Any]:
         """Escolhe as contas tentadas, em ordem, antes da rota normal."""
-        from .accounts import account_config
-        from .accounts import catalogo_efetivo
+        from ..accounts import account_config
+        from ..accounts import catalogo_efetivo
 
         if config is None:
             raise HTTPException(status_code=400, detail="sem catálogo carregado")
@@ -689,8 +689,8 @@ def create_app(
         """Lista variáveis esperadas e presença no cofre/ambiente."""
         import os
 
-        from .accounts import secrets as _secrets
-        from .accounts import variaveis_conhecidas
+        from ..accounts import secrets as _secrets
+        from ..accounts import variaveis_conhecidas
 
         if config is None:
             return {"credenciais": [], "cofre": ""}
@@ -721,8 +721,8 @@ def create_app(
         """Grava no cofre local, validando contra o catálogo."""
         import os
 
-        from .accounts import secrets as _secrets
-        from .accounts import variaveis_conhecidas
+        from ..accounts import secrets as _secrets
+        from ..accounts import variaveis_conhecidas
 
         if config is None:
             raise HTTPException(status_code=400, detail="sem catalogo carregado")
@@ -745,8 +745,8 @@ def create_app(
         """Copia para o cofre chaves presentes só no ambiente."""
         import os
 
-        from .accounts import secrets as _secrets
-        from .accounts import variaveis_conhecidas
+        from ..accounts import secrets as _secrets
+        from ..accounts import variaveis_conhecidas
 
         if config is None:
             raise HTTPException(status_code=400, detail="sem catalogo carregado")
@@ -768,7 +768,7 @@ def create_app(
     @app.put("/credenciais/{variavel}/{indice}")
     async def descrever_chave(variavel: str, indice: int, req: _RotuloDaChave) -> Dict[str, Any]:
         """Renomeia uma chave ou marca crédito pago."""
-        from .accounts import secrets as _secrets
+        from ..accounts import secrets as _secrets
 
         ok = _secrets.descrever_chave(variavel, indice, rotulo=req.rotulo, paga=req.paga)
         if not ok:
@@ -778,21 +778,21 @@ def create_app(
     @app.delete("/credenciais/{variavel}/{indice}")
     async def remover_uma_chave(variavel: str, indice: int) -> Dict[str, Any]:
         """Remove uma chave pelo índice."""
-        from .accounts import secrets as _secrets
+        from ..accounts import secrets as _secrets
 
         return {"removida": _secrets.remover_chave(variavel, indice)}
 
     @app.delete("/credenciais/{variavel}")
     async def remover_credencial(variavel: str) -> Dict[str, Any]:
         """Remove do cofre sem tocar no ambiente."""
-        from .accounts import secrets as _secrets
+        from ..accounts import secrets as _secrets
 
         return {"removida": _secrets.remover(variavel)}
 
     @app.get("/modelos/{provedor}")
     async def descobrir_modelos(provedor: str) -> Dict[str, Any]:
         """Modelos que o provedor informa no momento."""
-        from .catalog.model_catalog import fetch_model_catalog
+        from ..catalog.model_catalog import fetch_model_catalog
 
         try:
             catalogo = await fetch_model_catalog(config, provedor)
@@ -803,7 +803,7 @@ def create_app(
     @app.get("/janelas")
     async def janelas() -> Dict[str, Any]:
         """Janelas de uso dos provedores de assinatura."""
-        from .state import janela; from .catalog import quota_ping
+        from ..state import janela; from ..catalog import quota_ping
 
         if config is None:
             return {"janelas": [], "ping": quota_ping.configuracao()}
@@ -812,7 +812,7 @@ def create_app(
     @app.put("/janelas/ping")
     async def configurar_ping(req: _Ping) -> Dict[str, Any]:
         """Configura a sonda opcional de cota."""
-        from .catalog import quota_ping
+        from ..catalog import quota_ping
 
         atual = quota_ping.configuracao()
         quota_ping.configurar({
@@ -827,7 +827,7 @@ def create_app(
     @app.get("/historico")
     async def historico_por_dia(dias: int = 30) -> Dict[str, Any]:
         """Histórico diário de estabilidade por provedor."""
-        from .state import historico as _historico
+        from ..state import historico as _historico
 
         # Exclui o último recurso do uptime de provedores.
         ultimo = str(getattr(config, "last_resort", "") or "").strip().lower()
@@ -842,7 +842,7 @@ def create_app(
     @app.get("/uso")
     async def uso_de_tokens(dias: int = 365) -> Dict[str, Any]:
         """Tokens por dia e provedor, mais custo quando ele foi informado."""
-        from .state import uso as _uso
+        from ..state import uso as _uso
 
         limite = max(1, min(int(dias or 365), _uso.DIAS_GUARDADOS))
         return {
@@ -857,8 +857,8 @@ def create_app(
     @app.get("/diagnostico")
     async def diagnostico() -> Dict[str, Any]:
         """Diagnóstico legível da configuração."""
-        from .accounts.account_health import diagnosticar
-        from .accounts import catalogo_efetivo
+        from ..accounts.account_health import diagnosticar
+        from ..accounts import catalogo_efetivo
 
         if config is None:
             return {"achados": []}
@@ -871,7 +871,7 @@ def create_app(
     @app.get("/aprendizado")
     async def aprendizado() -> Dict[str, Any]:
         """Estado do aprendizado local do roteador."""
-        from .state import estado as _estado
+        from ..state import estado as _estado
 
         guardado = _estado.carregar()
         return {
@@ -884,7 +884,7 @@ def create_app(
     @app.delete("/aprendizado")
     async def esquecer_aprendizado() -> Dict[str, Any]:
         """Apaga o aprendizado local."""
-        from .state import estado as _estado
+        from ..state import estado as _estado
 
         apagou = _estado.esquecer()
         router.reset()
@@ -893,14 +893,14 @@ def create_app(
     @app.get("/erros")
     async def tabela_de_erros() -> Dict[str, Any]:
         """Tabela ativa de classificação de erros."""
-        from .routing import erros as _erros
+        from ..routing import erros as _erros
 
         return {"cooldown_padrao": _erros.COOLDOWN_PADRAO, "regras": _erros.REGRAS_PADRAO}
 
     @app.get("/cli-tools")
     async def cli_tools_todas(request: Request) -> Dict[str, Any]:
         """Configuração pronta para cada CLI apontar para cá."""
-        from .ui import cli_tools
+        from ..ui import cli_tools
 
         ferramentas = _com_conexao(cli_tools.todas(str(request.base_url).rstrip("/")), clientes)
         conhecidos = {f["id"] for f in ferramentas}

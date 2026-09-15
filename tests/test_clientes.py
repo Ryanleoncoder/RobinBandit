@@ -6,7 +6,7 @@ foram capturados do que as ferramentas realmente enviam.
 """
 import pytest
 
-from robinbandit.clientes import Clientes, JANELA_ATIVA, detectar
+from robinbandit.api.clientes import Clientes, JANELA_ATIVA, detectar
 
 
 def test_reconhece_o_claude_code_pelo_user_agent_real():
