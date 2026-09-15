@@ -47,3 +47,26 @@ def test_import_legado_aponta_para_modulo_novo(antigo, novo):
     modulo_novo = import_module(f"robinbandit.{novo}")
 
     assert modulo_antigo is modulo_novo
+
+
+def test_catalogo_aceita_assinatura_anterior_de_papeis():
+    from robinbandit.model_catalog import _papeis
+
+    assert _papeis("openai/whisper-1", ["audio"], [], set()) == [
+        "texto", "transcricao",
+    ]
+
+
+def test_custo_estimado_continua_disponivel_em_chain():
+    from robinbandit.chain import custo_estimado
+
+    catalogo = {
+        "modelo": {
+            "prompt_per_million": 2.0,
+            "completion_per_million": 4.0,
+        },
+    }
+    assert custo_estimado(
+        "provedor:modelo", {"entrada": 1_000_000, "saida": 500_000}, catalogo,
+    ) == 4.0
+    assert custo_estimado("provedor:desconhecido", {"entrada": 10}, catalogo) is None

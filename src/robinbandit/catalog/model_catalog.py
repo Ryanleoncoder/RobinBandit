@@ -63,7 +63,12 @@ def _papeis(
     model_id: str,
     input_modalities: List[str],
     output_modalities: List[str],
+    features: Optional[set] = None,
 ) -> List[str]:
+    # ``features`` fazia parte do contrato anterior e alguns hosts ainda o
+    # enviam. Os papeis continuam derivados das modalidades; manter o quarto
+    # argumento evita quebrar esses consumidores durante a reorganizacao.
+    del features
     entrada = {item.lower() for item in input_modalities}
     saida = {item.lower() for item in output_modalities}
     nome = model_id.lower()
