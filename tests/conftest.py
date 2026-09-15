@@ -21,7 +21,7 @@ import pytest
 
 @pytest.fixture(autouse=True)
 def config_isolada(monkeypatch):
-    from robinbandit import account_config
+    from robinbandit.accounts import account_config
 
     casa = Path(tempfile.mkdtemp(prefix="robinbandit-testes-"))
     # `ROBINBANDIT_HOME` cobre ranking, historico, janelas e uso de uma vez.

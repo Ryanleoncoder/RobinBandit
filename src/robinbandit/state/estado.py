@@ -1,20 +1,4 @@
-"""Onde o que o roteador aprendeu sobrevive ao restart.
-
-Três coisas diferentes moram em três lugares, e confundi-las custa caro:
-
-- **Priors** (`quality`, `tier`, `cost_class`) vão no YAML versionado. São um
-  palpite inicial razoável, iguais para todo mundo.
-- **Preferências** desta instalação vão em `~/.robinbandit/config.yaml`, lido
-  por cima do YAML do repo.
-- **O aprendizado** — qual provedor de fato rende aqui — mora aqui, e não vai
-  para o repositório de jeito nenhum. Ele foi medido com ESTAS chaves, neste
-  plano, nesta região. Entregar isso pronto a outra pessoa seria entregar um
-  viés que ela nunca mediu.
-
-Antes disso, quem salvava era o host, num Redis. Sem Redis configurado — o
-caso normal numa instalação local — o bandit reaprendia do zero a cada
-restart, e a exploração inicial era paga de novo toda vez.
-"""
+"""Persistência local do aprendizado do roteador."""
 from __future__ import annotations
 
 import json
@@ -26,9 +10,7 @@ from typing import Any, Dict, Optional
 
 logger = logging.getLogger(__name__)
 
-# Aprendizado velho demais descreve um mundo que mudou: modelo aposentado,
-# plano trocado, chave nova. Depois disso é melhor medir de novo do que
-# confiar no que ficou.
+# Aprendizado antigo demais é descartado.
 VALIDADE_S = 30 * 24 * 3600
 
 
@@ -82,8 +64,7 @@ def carregar() -> Optional[Dict[str, Any]]:
 
 
 def esquecer() -> bool:
-    """Apaga o aprendizado. Para quando as chaves ou os planos mudaram e o que
-    foi medido antes passou a descrever outro mundo."""
+    """Apaga o aprendizado local."""
     try:
         caminho().unlink()
         return True

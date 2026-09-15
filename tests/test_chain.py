@@ -31,7 +31,7 @@ class _Prov:
 
 @pytest.fixture
 def sem_espera(monkeypatch):
-    import robinbandit.chain as chain
+    import robinbandit.routing.chain as chain
 
     async def _no_sleep(s):
         pass

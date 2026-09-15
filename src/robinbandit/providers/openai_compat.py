@@ -3,14 +3,14 @@ from typing import Any, Dict, List, Optional
 
 import httpx
 
-from .credentials import KeyRotator, parse_keys, is_quota_error
-from .reasoning import (
+from ..accounts.credentials import KeyRotator, parse_keys, is_quota_error
+from ..catalog.reasoning import (
     build_reasoning_payload,
     is_reasoning_rejection,
     mark_reasoning_control_rejected,
     reasoning_control_allowed,
 )
-from .token_budget import model_token_budget
+from ..catalog.token_budget import model_token_budget
 
 logger = logging.getLogger(__name__)
 
@@ -153,7 +153,7 @@ class OpenAICompatProvider:
         self.last_model: Optional[str] = None
         self.last_reasoning_summary: Optional[str] = None
         self.last_quota: Optional[Dict[str, Optional[int]]] = None
-        # Tokens do ultimo turno. Sem isto nao existe custo honesto na tela.
+        # Uso do último turno para contabilidade do painel.
         self.last_usage: Optional[Dict[str, int]] = None
 
     async def complete(self, messages: List[Dict[str, str]], temperature: float = 0.2,

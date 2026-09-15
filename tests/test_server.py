@@ -126,7 +126,7 @@ def test_responses_api_stream_emite_a_sequencia_do_codex():
 
 
 def test_responses_api_reconstroi_historico_de_ferramenta():
-    from robinbandit.responses_api import para_mensagens
+    from robinbandit.api.responses_api import para_mensagens
 
     mensagens = para_mensagens([
         {"type": "message", "role": "user", "content": [

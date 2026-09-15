@@ -15,7 +15,7 @@ _CACHE_TTL_SECONDS = 300
 
 
 def _source_value(settings: Any, *names: str) -> str:
-    from . import secrets
+    from ..accounts import secrets
 
     for name in names:
         key = str(name or "").strip()

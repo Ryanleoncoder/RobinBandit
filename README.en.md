@@ -36,7 +36,7 @@ in your chain: without credentials or an explicit choice, a provider stays out.
 
 **[See the project page →](https://ryanleoncoder.github.io/RobinBandit/)**
 
-![The current queue in the panel: each provider with state, quality, OK/error, latency and the reason whoever is waiting is waiting](docs/imagens/painel-agora.png)
+![The Now panel with route status, an in-progress attempt, recent activity and the start of the provider queue](docs/imagens/painel-agora.png)
 
 <p align="center"><sub>The panel at <code>/painel</code>: the order right now, and the reason for it.</sub></p>
 
@@ -73,7 +73,7 @@ first in line on the next call.
 
 And a bad day is not hypothetical:
 
-![Thirty days per provider: gemini at 98.46% with two bad days from 429s, claude_code at 97.3% with one 529 overloaded day, cerebras and groq with none](docs/imagens/dia-ruim.png)
+![Thirty days per provider, with a legend for days without calls, healthy days, unstable days and days with failures](docs/imagens/dia-ruim.png)
 
 None of these providers is broken. All four clear 97%. The point is that
 failure is not spread evenly: it clumps into days, with a reason attached
@@ -293,7 +293,11 @@ response = await chain.complete(
 
 ### Per-request selection
 
-The Router supports three policies without confusing choice with fallback:
+The panel exposes four modes for the normal route: adaptive, tier priority,
+fixed list and round robin. Generic HTTP clients can also request a Reinforced
+route for one call.
+
+At the core, per-call selection stays simple:
 
 ```python
 from robinbandit import RouteSelection
@@ -304,14 +308,15 @@ RouteSelection.strict("groq:model-a")   # only the pinned one; fails with no fal
 ```
 
 In the Sentury profile, `router`, `reforçado` and `dedicado` are aliases for
-those three behaviors. In the universal API the canonical names are `router`,
+these behaviors. In the universal API the canonical names are `router`,
 `hybrid` and `strict`; `auto` is accepted only as a legacy alias for `router`.
 
 Generic HTTP clients can request the Reinforced queue configured in the panel
 with `X-RobinBandit-Mode: reinforced`. The queue accepts multiple ordered
 accounts and can mix subscriptions, credits, free accounts, and CLI sessions.
 If every preferred account fails, the Router continues through its normal
-chain. Dedicated remains intentionally owned by the Sentury interface.
+chain. Dedicated stays out of the universal panel because it belongs to the
+Sentury flow.
 
 ## YAML configuration
 
@@ -360,8 +365,9 @@ CSV/list pools, and never returns the value in status payloads. Use
 
 The catalog, the vault and the account choices belong to RobinBandit itself.
 Reinforced with no credential records the target's failure and carries on
-through the Router; Dedicated with no credential ends with no fallback. Changing
-a key rebuilds the Sentury adapters without requiring a restart.
+through the Router. In Sentury, Dedicated uses `strict` and ends with no
+fallback when the chosen account is unavailable. Changing a key rebuilds the
+Sentury adapters without requiring a restart.
 
 #### ChatGPT Codex (OAuth)
 
@@ -386,6 +392,12 @@ and disables shell, plugins, apps, browser, computer, image and subagents. That
 keeps Codex as Robin's model; tools and side effects stay under the host agent's
 control. The catalog shows only `auth_type: codex_cli` and the configured state,
 never authentication material.
+
+The same Codex installation can be both client and provider without creating a
+loop. The regular client configuration keeps pointing at RobinBandit; the
+outbound `app-server` receives `model_provider="openai"` for that process only.
+The main `~/.codex/config.toml` is not rewritten. This `-c` override is part of
+the [official Codex configuration](https://learn.chatgpt.com/docs/config-file/config-reference).
 
 The YAML field `icon: openai` is a semantic identifier only. The host agent owns
 the visual asset and decides how to present it; Robin stays uncoupled from any
@@ -464,24 +476,22 @@ robinbandit serve          # brings up the endpoint
 # open http://localhost:8000/painel
 ```
 
-One page, served by the package itself. It shows the order right now and **why**
-it looks that way: quality, success rate, latency and the reason whoever is
-waiting is waiting. It computes nothing: everything comes from the router,
-because a panel that does its own math shows one thing while the router decides
-another.
+One page, served by the package itself. It shows the current order, who can
+answer, who is waiting, tokens, reported cost and the reason each provider moved
+in the queue.
 
 There are seven tabs. What each one solves:
 
 ### Providers: choose the queue policy
 
-![Providers grouped by tier, with a choice between letting the bandit learn and letting the tier decide](docs/imagens/painel-provedores.png)
+![Normal and Reinforced routes plus Adaptive, Tier priority, Fixed list and Round-robin modes](docs/imagens/painel-provedores.png)
 
-A tier is a group, and several providers fit in the same one. The panel offers
-four routing policies:
+A tier is a group, and several providers fit in the same one. The normal route
+offers four modes:
 
-* **Let it learn** (`strategy: adaptive`): the tier is a bonus. A tier 2
+* **Adaptive** (`strategy: adaptive`): the tier is a bonus. A tier 2
   provider that has been answering better goes ahead of tier 1.
-* **My tier rules** (`strategy: tier`): the tier is a barrier. Tier 2 is only
+* **Tier priority** (`strategy: tier`): the tier is a barrier. Tier 2 is only
   tried once all of tier 1 has failed: *"try these first even if they fail; only
   then spend my credits"*.
 * **Fixed list** (`strategy: fixed`) follows the editable chain order and moves
@@ -489,8 +499,9 @@ four routing policies:
 * **Round robin** (`strategy: round_robin`) rotates the first attempt after each
   real call. Opening the panel does not move the cursor.
 
-Dragging changes the group; the button removes a provider from the chain and
-puts it back.
+Reinforced is separate: one call can request a preferred account queue with
+`X-RobinBandit-Mode: reinforced`. If every preferred account fails, the request
+returns to the normal route.
 
 ### Models: each provider's list
 
@@ -509,15 +520,32 @@ A key pasted here goes into the machine's vault with `0600` permissions and
 provider can have more than one account, and the rotator alternates between them
 when one hits its quota. Reinforced accepts several paid or free accounts in a
 chosen order before returning to the normal route. Dedicated stays in the
-Sentury interface, where it pins one provider and one model without fallback.
-Low-level `strict` selection remains available to Python integrations.
+Sentury interface, which already owns that selection. The universal panel does
+not show it. Low-level `strict` selection remains available to integrations.
 
 *Bring into the vault* copies what today only exists in the environment; the
 source `.env` is not touched.
 
+Local data is split by concern under `~/.robinbandit/`:
+
+| File | Contents |
+|---|---|
+| `config.yaml` | personal YAML catalog adjustments |
+| `cofre.json` | secrets, with `0600` permissions |
+| `contas.json` | accounts and the Reinforced queue |
+| `preferencias.json` | language, mode, chain, tiers and selected models |
+| `ranking.json` | router learning |
+| `historico.json` | daily health for the last 60 days |
+| `uso.json` | tokens and provider-reported cost for the last 365 days |
+| `janelas.json` | subscription usage blocks |
+
+An older installation that still mixes preferences into `contas.json` is
+migrated automatically. The destination is written before the old copy is
+cleaned. None of these files belongs in the repository.
+
 ### Usage and cost
 
-![Tokens spent: a 30-day total, call count, and a one-square-per-day calendar](docs/imagens/painel-uso.png)
+![Thirty-day usage with input and output tokens, reported cost, calls, daily trend and calendar](docs/imagens/painel-uso.png)
 
 The panel separates input, output and cached tokens, shows calls, and keeps a
 365-day calendar. USD cost appears when the provider includes it in the

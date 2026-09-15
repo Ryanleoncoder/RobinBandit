@@ -1,14 +1,4 @@
-"""Provedor Claude Code através do CLI oficial, com a autenticação da assinatura.
-
-O RobinBandit não lê, copia ou renova credencial nenhuma: `~/.claude/.credentials.json`
-pertence ao CLI, e quem fala com a Anthropic é ele. Aqui o Claude Code se comporta
-como provedor de modelo — o loop de ferramentas continua sendo do agente
-hospedeiro (Sentury ou qualquer outro), por isso cada chamada roda com as
-ferramentas desligadas.
-
-O que isso destrava: modelo de assinatura, sem chave de API e sem cota por token,
-para o trabalho pesado que os provedores gratuitos não aguentam.
-"""
+"""Provedor Claude Code via CLI oficial."""
 from __future__ import annotations
 
 import json
@@ -37,10 +27,7 @@ class ClaudeCodeAuthStatus:
 _STATUS_CACHE: Dict[str, tuple] = {}
 _STATUS_TTL_SECONDS = 15.0
 
-# O CLI nem sempre entra no PATH do processo que sobe o servidor: a extensão do
-# VS Code instala o binário dentro dela, e o instalador nativo usa `.local/bin`.
-# Sem procurar nestes lugares, o provedor aparecia como "não instalado" com o
-# CLI logado e funcionando.
+# Locais comuns do CLI quando ele não está no PATH do servidor.
 _LOCAIS_CONHECIDOS = (
     ("~", ".claude", "local"),
     ("~", ".local", "bin"),
@@ -132,11 +119,7 @@ def claude_code_auth_status(binary: str = "claude", *, timeout: float = 8.0) -> 
 
 
 def _texto_das_mensagens(messages: List[Dict[str, Any]]) -> tuple:
-    """Separa o system do resto e junta o diálogo num prompt único.
-
-    O CLI recebe uma pergunta por chamada, não uma conversa: o histórico vira
-    texto com os papéis marcados, que é o que ele sabe ler.
-    """
+    """Separa instruções e junta o diálogo num prompt único."""
     sistema: List[str] = []
     dialogo: List[str] = []
     for mensagem in messages or []:

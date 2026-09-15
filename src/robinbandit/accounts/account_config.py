@@ -1,15 +1,7 @@
-"""Configuração de contas do RobinBandit: contas extras e o mapa tier→conta.
+"""Persistência local de contas e preferências do painel.
 
-Separado de `secrets.py` de propósito. O cofre guarda **segredo** e por
-isso é paranoico: lista branca, 0600, nada volta pra tela. Isto aqui é
-**configuração** comum: nome de conta, modelos e a ordem do Reforçado. Ela pode
-ser lida, mostrada e versionada por quem quiser.
-
-A regra que decide o desenho: **isto é uma camada por cima do que o ambiente já
-descobriu, nunca um substituto.** Quem já tem tudo no `.env` continua
-funcionando sem tocar em nada, e o painel só acrescenta ou corrige por cima.
-Antes disso, declarar uma conta apagava todas as descobertas, o que fazia
-"adicionar uma segunda chave do Groq" apagar a primeira.
+Segredos ficam em ``secrets.py``. Aqui entram apenas configuração declarativa:
+contas, fila do Reforçado, tiers, modelos, idioma e estratégia.
 """
 import json
 import os
@@ -19,27 +11,24 @@ from typing import Any, Dict, List, Optional
 
 _LOCK = threading.RLock()
 _PATH_ENV = "ROBINBANDIT_ACCOUNTS_PATH"
+_PREFERENCES_PATH_ENV = "ROBINBANDIT_PREFERENCES_PATH"
 
-# Onde nasceu antes: uma pasta com o nome de UM agente, relativa ao diretorio
-# de onde o processo subiu. Quem usasse o RobinBandit em outro agente ganhava
-# uma pasta `.sentury`, e mudar de terminal mudava a configuracao lida.
+_CAMPOS_DE_CONTA = ("contas", "tiers", "reforcado")
+_CAMPOS_DE_PREFERENCIA = (
+    "provedores", "modelos", "modelos_por_papel", "estrategia", "cadeia", "idioma",
+)
+
+# Caminho legado usado antes de ``ROBINBANDIT_HOME``.
 _LEGADO = Path(".sentury") / "contas.json"
 
 
 def _padrao() -> Path:
-    """A casa desta maquina — a mesma do ranking e do historico.
-
-    Funcao, nao constante: `Path.cwd()` no import congela o diretorio de onde o
-    processo subiu, e o legado abaixo precisa ser reavaliado.
-    """
+    """Retorna o arquivo de contas da instalação local."""
     home = os.environ.get("ROBINBANDIT_HOME") or str(Path.home() / ".robinbandit")
     novo = Path(home) / "contas.json"
     legado = Path.cwd() / _LEGADO
     if legado.is_file() and not novo.exists():
-        # Instalacao que ja configurou contas: copiar uma vez e seguir na casa
-        # nova. Abandonar o arquivo perderia a configuracao da tela; ficar lendo
-        # o antigo mantinha a configuracao presa ao diretorio de onde se sobe o
-        # processo. O original fica onde esta — nada e apagado.
+        # Migra sem remover o arquivo antigo.
         try:
             novo.parent.mkdir(parents=True, exist_ok=True)
             novo.write_text(legado.read_text(encoding="utf-8"), encoding="utf-8")
@@ -62,33 +51,73 @@ def caminho_da_config() -> Path:
     return Path(bruto).expanduser() if bruto else _padrao()
 
 
+def caminho_das_preferencias() -> Path:
+    """Arquivo das escolhas feitas no painel."""
+    bruto = str(os.environ.get(_PREFERENCES_PATH_ENV) or "").strip()
+    if bruto:
+        return Path(bruto).expanduser()
+    caminho_contas = caminho_da_config()
+    return caminho_contas.with_name("preferencias.json")
+
+
+def _ler_json(caminho: Path) -> Dict[str, Any]:
+    if not caminho.exists():
+        return {}
+    try:
+        dados = json.loads(caminho.read_text(encoding="utf-8") or "{}")
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return dados if isinstance(dados, dict) else {}
+
+
+def _gravar_json(caminho: Path, dados: Dict[str, Any]) -> None:
+    caminho.parent.mkdir(parents=True, exist_ok=True)
+    tmp = caminho.with_name(
+        f".{caminho.name}.{os.getpid()}.{threading.get_ident()}.tmp"
+    )
+    tmp.write_text(json.dumps(dados, indent=2, ensure_ascii=False), encoding="utf-8")
+    try:
+        os.chmod(tmp, 0o600)
+    except OSError:
+        pass
+    tmp.replace(caminho)
+
+
 def carregar() -> Dict[str, Any]:
     vazio = {
         "contas": [], "tiers": {}, "reforcado": [], "provedores": {}, "modelos": {},
         "modelos_por_papel": {},
-        # Como decidir e quem entra na cadeia. Sem estarem aqui, a normalizacao
-        # abaixo descartava os dois na leitura: gravava certo e voltava vazio.
         "estrategia": "", "cadeia": [],
-        # Em que lingua a interface responde. Mesma armadilha das duas acima:
-        # esta lista e branca, e o que nao esta nela e jogado fora na leitura.
         "idioma": "",
     }
     caminho = caminho_da_config()
-    if not caminho.exists():
-        return dict(vazio)
-    try:
-        dados = json.loads(caminho.read_text(encoding="utf-8") or "{}")
-    except (OSError, json.JSONDecodeError):
-        # Config quebrada não derruba o boot: o catálogo do ambiente ainda vale.
-        return dict(vazio)
-    if not isinstance(dados, dict):
-        return dict(vazio)
+    contas = _ler_json(caminho)
+    preferencias = _ler_json(caminho_das_preferencias())
+
+    # Grava o destino antes de limpar o formato antigo.
+    campos_legados = [
+        campo for campo in _CAMPOS_DE_PREFERENCIA if campo in contas
+    ]
+    legadas = {
+        campo: contas[campo]
+        for campo in campos_legados if campo not in preferencias
+    }
+    if campos_legados:
+        preferencias.update(legadas)
+        try:
+            _gravar_json(caminho_das_preferencias(), preferencias)
+            limpas = {campo: contas.get(campo) for campo in _CAMPOS_DE_CONTA if campo in contas}
+            _gravar_json(caminho, limpas)
+            contas = limpas
+        except OSError:
+            # Continua lendo a configuração antiga nesta execução.
+            preferencias.update(legadas)
+
+    dados = {**contas, **preferencias}
     return {
         "contas": [c for c in (dados.get("contas") or []) if isinstance(c, dict)],
         "tiers": {str(k): str(v) for k, v in (dados.get("tiers") or {}).items()},
-        # Lista ordenada de contas tentadas pelo Reforçado antes da rota normal.
-        # Instalações antigas tinham apenas `tiers.ultra`; o runtime o usa como
-        # fallback quando esta lista ainda não foi gravada.
+        # Instalações antigas usavam apenas ``tiers.ultra`` como fallback.
         "reforcado": [
             str(conta).strip()
             for conta in (dados.get("reforcado") or [])
@@ -96,14 +125,13 @@ def carregar() -> Dict[str, Any]:
         ],
         # provedor -> tier de roteamento (1 preferencial ... 3 ultimo recurso).
         "provedores": {str(k): v for k, v in (dados.get("provedores") or {}).items()},
-        # provedor -> modelos escolhidos no catalogo vivo. Configuracao, nunca segredo.
+        # provedor -> modelos escolhidos no catalogo vivo.
         "modelos": {
             str(k): [str(modelo).strip() for modelo in v if str(modelo).strip()]
             for k, v in (dados.get("modelos") or {}).items()
             if isinstance(v, list)
         },
-        # papel (imagem, audio, transcricao, embedding...) -> provedor -> modelos.
-        # Texto continua em "modelos" para nao quebrar quem ja gravou.
+        # Texto continua em "modelos" para manter compatibilidade.
         "modelos_por_papel": {
             str(papel): {
                 str(k): [str(m).strip() for m in v if str(m).strip()]
@@ -124,17 +152,10 @@ def carregar() -> Dict[str, Any]:
 
 
 def _gravar(dados: Dict[str, Any]) -> None:
-    caminho = caminho_da_config()
-    caminho.parent.mkdir(parents=True, exist_ok=True)
-    tmp = caminho.with_name(
-        f".{caminho.name}.{os.getpid()}.{threading.get_ident()}.tmp"
-    )
-    tmp.write_text(json.dumps(dados, indent=2, ensure_ascii=False), encoding="utf-8")
-    try:
-        os.chmod(tmp, 0o600)
-    except OSError:
-        pass
-    tmp.replace(caminho)   # troca atômica
+    contas = {campo: dados.get(campo) for campo in _CAMPOS_DE_CONTA}
+    preferencias = {campo: dados.get(campo) for campo in _CAMPOS_DE_PREFERENCIA}
+    _gravar_json(caminho_da_config(), contas)
+    _gravar_json(caminho_das_preferencias(), preferencias)
 
 
 _CAMPOS = ("id", "provider", "key_env", "label", "models", "paga")
@@ -149,9 +170,7 @@ def salvar_conta(item: Dict[str, Any]) -> Dict[str, Any]:
     if faltando:
         raise ValueError(f"conta sem {', '.join(faltando)}.")
     if not key_env.replace("_", "").isalnum():
-        # O nome vira variável de ambiente e entra na lista branca do cofre.
-        # Aceitar qualquer coisa aqui abriria a escrita arbitrária que a lista
-        # branca existe pra fechar.
+        # O nome entra na lista branca do cofre.
         raise ValueError("key_env deve ter só letras, números e underscore (ex.: GROQ_API_KEY_2).")
 
     with _LOCK:
@@ -170,16 +189,13 @@ def salvar_conta(item: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def remover_conta(conta_id: str) -> bool:
-    """Tira a conta declarada. Conta descoberta do ambiente não some por aqui:
-    ela volta a valer, que é o comportamento certo — o painel não tem poder de
-    apagar o que o deploy configurou."""
+    """Remove apenas a conta declarada no painel."""
     cid = str(conta_id or "").strip()
     with _LOCK:
         dados = carregar()
         antes = len(dados["contas"])
         dados["contas"] = [c for c in dados["contas"] if str(c.get("id")) != cid]
-        # O tier que apontava pra ela fica órfão: limpa junto, senão o catálogo
-        # recusa carregar por apontar pra id inexistente.
+        # Remove referências órfãs.
         dados["tiers"] = {t: v for t, v in dados["tiers"].items() if v != cid}
         dados["reforcado"] = [conta for conta in dados["reforcado"] if conta != cid]
         if len(dados["contas"]) == antes:
@@ -189,9 +205,7 @@ def remover_conta(conta_id: str) -> bool:
 
 
 def apontar_tier(tier: str, conta_id: str, ids_validos: Optional[List[str]] = None) -> None:
-    """Escolhe qual conta serve um tier ('ultra' = Reforçado, 'ultra_max' =
-    Dedicado). Valida contra o catálogo inteiro, não só contra as declaradas:
-    apontar o Dedicado pra uma conta descoberta do `.env` é legítimo."""
+    """Escolhe qual conta serve um tier de seleção."""
     t = str(tier or "").strip().lower()
     alvo = str(conta_id or "").strip()
     if t not in ("ultra", "ultra_max"):
@@ -215,11 +229,7 @@ def ordem_do_reforcado() -> List[str]:
 def definir_ordem_do_reforcado(
     contas: List[str], ids_validos: Optional[List[str]] = None,
 ) -> List[str]:
-    """Grava a fila do Reforçado sem limitar por preço ou tipo de autenticação.
-
-    Uma assinatura, uma chave gratuita e uma sessão de CLI são igualmente
-    válidas aqui. O que manda é a ordem escolhida pela pessoa.
-    """
+    """Grava a fila do Reforçado sem limitar por preço ou autenticação."""
     ordem: List[str] = []
     for conta in contas or []:
         cid = str(conta or "").strip()
@@ -239,17 +249,14 @@ def definir_ordem_do_reforcado(
     return ordem
 
 
-# O tier de roteamento entra no score de CADA escolha de provedor, então ler o
-# arquivo a cada chamada seria I/O no caminho quente. Cache invalidado pelo
-# mtime: quem grava pelo painel vê o efeito na próxima requisição, e quem não
-# grava nunca paga o disco.
+# Cache por mtime evita I/O no caminho quente e reflete mudanças do painel.
 _CACHE_TIERS: Dict[str, Any] = {"mtime": None, "valor": {}}
 _CACHE_MODELOS: Dict[str, Any] = {"mtime": None, "valor": {}}
 
 
 def overrides_de_tier() -> Dict[str, int]:
     """provedor -> tier escolhido no painel. Vazio = usa o tier do YAML."""
-    caminho = caminho_da_config()
+    caminho = caminho_das_preferencias()
     try:
         mtime = caminho.stat().st_mtime
     except OSError:
@@ -268,11 +275,7 @@ def overrides_de_tier() -> Dict[str, int]:
 
 
 def definir_tier_de_provedor(provider: str, tier: Any) -> None:
-    """Move um provedor de tier. `tier` vazio devolve ao padrão do YAML.
-
-    Só 1, 2 e 3 entram: 9 é o Demo, que existe pra ser o último e não deve
-    virar destino de arrasto.
-    """
+    """Move um provedor de tier; vazio devolve ao padrão do YAML."""
     chave = str(provider or "").strip().lower()
     if not chave:
         raise ValueError("provedor vazio.")
@@ -293,7 +296,7 @@ def definir_tier_de_provedor(provider: str, tier: Any) -> None:
 
 def overrides_de_modelos() -> Dict[str, List[str]]:
     """Modelos escolhidos pelo usuario por provedor; vazio usa ambiente/YAML."""
-    caminho = caminho_da_config()
+    caminho = caminho_das_preferencias()
     try:
         mtime = caminho.stat().st_mtime
     except OSError:
@@ -359,27 +362,13 @@ def definir_modelos_de_provedor(provider: str, modelos: List[str], papel: str = 
     return normalizados
 
 
-# ─── Como decidir, e quem entra ─────────────────────────────────────────────
-# Isto e escolha de quem usa, nao do repositorio: a mesma instalacao pode
-# querer "aprenda com o uso" hoje e "obedeca meus tiers" amanha.
+# Estratégia de roteamento escolhida no painel.
 
 ESTRATEGIAS = ("adaptive", "tier", "fixed", "round_robin")
 
 
 def estrategia(padrao: str = "adaptive") -> str:
-    """Como o roteador decide.
-
-    `adaptive`: o tier e um bonus, e o aprendizado pode passar por cima dele —
-    um provedor de tier 2 que vem respondendo melhor sobe.
-
-    `tier`: o tier e barreira. O tier 2 so e tentado quando o tier 1 inteiro
-    falhou. E a forma de dizer "va nestes primeiro, mesmo que falhem; so
-    depois gaste meus creditos".
-
-    `fixed`: respeita exatamente a ordem da cadeia; indisponiveis vao para o
-    fim durante o cooldown. `round_robin`: gira essa mesma cadeia a cada
-    tentativa concluida para distribuir carga sem o painel mover o cursor.
-    """
+    """Estratégia ativa: adaptive, tier, fixed ou round_robin."""
     escolhida = str(carregar().get("estrategia") or "").strip().lower()
     return escolhida if escolhida in ESTRATEGIAS else str(padrao or "adaptive")
 
@@ -404,11 +393,7 @@ def cadeia() -> List[str]:
 
 
 def definir_cadeia(nomes: List[str], validos: Optional[List[str]] = None) -> List[str]:
-    """Troca quem entra e em que ordem.
-
-    Nome fora do catalogo e recusado alto: uma cadeia com um provedor que nao
-    existe falha no meio de um turno, e nao na hora de configurar.
-    """
+    """Troca quem entra na cadeia e em que ordem."""
     permitidos = {str(n).strip().lower() for n in (validos or [])}
     limpa: List[str] = []
     for nome in nomes or []:

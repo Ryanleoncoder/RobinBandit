@@ -3,8 +3,8 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
 
-from .credentials import KeyRotator, parse_keys, is_quota_error
-from .token_budget import model_token_budget
+from ..accounts.credentials import KeyRotator, parse_keys, is_quota_error
+from ..catalog.token_budget import model_token_budget
 
 logger = logging.getLogger(__name__)
 

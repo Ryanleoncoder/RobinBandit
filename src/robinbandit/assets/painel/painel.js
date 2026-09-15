@@ -1,7 +1,8 @@
 const $ = id => document.getElementById(id);
 let config = null;
 let ferramentas = [];
-let estado = { provedores: [], ordem: [] };
+let estado = { provedores: [], ordem: [], atividade: [] };
+let periodoUso = 30;
 
 function logo(nome) {
   const sigla = (nome || '?').slice(0, 2).toUpperCase();
@@ -10,9 +11,7 @@ function logo(nome) {
 }
 
 function selo(p) {
-  // Deduzido do que a linha ja mostra, nao do `last_status` do processo: ele
-  // nasce "idle" a cada restart, entao um provedor com 126 chamadas boas
-  // recuperadas do aprendizado aparecia como "sem uso".
+  // Derivado dos contadores persistidos, não do status inicial do processo.
   if (p.cooldown) return ['mau', 'em espera'];
   const ok = p.ok || 0, err = p.err || 0, total = ok + err;
   if (!total) return ['', 'sem uso'];
@@ -23,8 +22,7 @@ function selo(p) {
 }
 
 function medidor(valor, estimado) {
-  // Sem historico o numero e o prior do catalogo — palpite de fabrica, igual
-  // para todo mundo. Escrito igual a uma medicao, passava por uma.
+  // Sem histórico, o número é o prior do catálogo.
   const n = Number(valor) || 0;
   const faixa = n >= 0.75 ? '' : n >= 0.5 ? ' medio' : ' baixo';
   return '<span class="medidor"><span class="trilho">' +
@@ -36,26 +34,18 @@ function medidor(valor, estimado) {
 }
 
 /* — Primeiros passos — */
-/* So aparece antes da primeira chamada: passada ela, a fila em baixo responde
- * sozinha. Ate existir, quem instalava encontrava "nenhuma chamada ainda" — a
- * informacao estava certa e nao dizia o que fazer com ela.
- *
- * Cada passo se resolve conforme acontece; nao ha nada para marcar. */
 function desenharInicio() {
   const onde = $('inicio');
   if (!onde) return;
 
-  const vazio = (estado.chamadas || 0) === 0;
+  const vazio = (estado.chamadas || 0) === 0 && !(estado.atividade || []).length;
 
-  // Uma tela, um estado. Sem isto, a tela vazia dizia "nenhuma chamada ainda"
-  // em tres lugares — no placar, na tabela e aqui — e ainda deixava tres
-  // titulos de secao pairando sobre blocos sem nada dentro. Enquanto nao ha o
-  // que mostrar, o que aparece e o que fazer; quando ha, os passos somem.
-  ['placar', 'ordem', 'credito', 'historico'].forEach(id => {
+  // Antes da primeira chamada, mostra só o onboarding.
+  ['placar', 'fluxo', 'atividade', 'ordem', 'credito', 'historico'].forEach(id => {
     const el = $(id);
     if (!el) return;
     el.hidden = vazio;
-    // O `h2` de cada bloco e o irmao imediatamente acima dele.
+    // O `h2` de cada bloco é o irmão imediatamente acima dele.
     const titulo = el.previousElementSibling;
     if (titulo && titulo.tagName === 'H2') titulo.hidden = vazio;
   });
@@ -66,6 +56,10 @@ function desenharInicio() {
     const conhecido = ((config && config.provedores) || []).find(c => c.nome === p.nome);
     return conhecido ? conhecido.label : p.nome;
   });
+  const tituloAtividade = $('titulo-atividade');
+  if (tituloAtividade) tituloAtividade.hidden = vazio;
+  const notaAtividade = $('nota-atividade');
+  if (notaAtividade) notaAtividade.hidden = vazio;
   const provedores = listaProvedores.length;
   const ferramenta = (ferramentas || []).filter(f => f.conexao)[0];
 
@@ -95,7 +89,7 @@ function desenharInicio() {
     '<ol class="passos">' +
     passos.map((p, i) =>
       '<li' + (p.feito ? ' class="feito"' : '') + '>' +
-      // O numero vira marca de concluido: o estado nao fica so na cor.
+      // Marca conclusão também por texto, não só por cor.
       '<span class="n">' + (p.feito ? '&#10003;' : '0' + (i + 1)) + '</span>' +
       '<div><strong>' + p.titulo + '</strong>' +
       '<p>' + p.texto + '</p>' +
@@ -114,13 +108,15 @@ function desenharAgora() {
   const saude = {};
   (estado.provedores || []).forEach(p => (saude[p.nome] = p));
 
-  // O placar responde de cabeca o que a tabela responde lendo: quem esta
-  // respondendo, quanto ja passou por aqui, quantos estao de pe.
+  // Resumo rápido do estado que a tabela detalha abaixo.
   const chamadas = estado.chamadas || 0;
   const dePe = (estado.provedores || []).filter(p => !p.cooldown).length;
   const total = (estado.provedores || []).length;
   const primeiro = linhas[0];
   const emEspera = (estado.provedores || []).filter(p => p.cooldown).length;
+  const atividade = estado.atividade || [];
+  const abertas = atividade.filter(a => a.status === 'em_andamento');
+  const ultima = atividade[0];
   $('placar').innerHTML =
     '<div><b class="verde">' + (primeiro ? primeiro.nome : '—') + '</b>' +
     '<span>primeiro da fila</span>' +
@@ -130,24 +126,38 @@ function desenharAgora() {
     '<small>desde que o servidor subiu</small></div>' +
     '<div><b' + (emEspera ? ' class="ambar"' : '') + '>' + dePe + ' de ' + total + '</b>' +
     '<span>de pé</span><small>' +
-    (emEspera ? emEspera + ' em espera depois de falhar' : 'ninguém em espera') + '</small></div>';
+    (emEspera ? emEspera + ' em espera depois de falhar' : 'ninguém em espera') + '</small></div>' +
+    '<div><b' + (abertas.length ? ' class="ambar"' : '') + '>' + abertas.length + '</b>' +
+    '<span>em andamento</span><small>' + (ultima
+      ? (ultima.status === 'em_andamento' ? 'roteando agora' : 'atividade ' + haQuanto(ultima.ha_segundos))
+      : 'nenhuma desde que subiu') + '</small></div>';
 
-  // Uma tabela, nao duas: "ordem" e "saude" repetiam provedor e latencia lado a
-  // lado, e obrigavam a cruzar as duas com o dedo para responder uma pergunta.
+  desenharAtividade(atividade);
+
+  // Uma tabela combina ordem e saúde.
   $('ordem').innerHTML = linhas.length
     ? '<table><thead><tr><th></th><th>Provedor</th><th>Estado</th><th>Qualidade</th>' +
-      '<th>OK / erro</th><th>Latência</th><th>Por quê</th></tr></thead><tbody>' +
+      '<th>OK / erro</th><th>Latência</th><th>Cota</th><th>Por quê</th></tr></thead><tbody>' +
       linhas.map((l, i) => {
         const s = saude[l.nome] || {};
         const par = selo(s);
         const espera = s.cooldown ? ' <span class="num" style="color:var(--ambar)">' + s.cooldown + 's</span>' : '';
+        const recente = s.em_andamento
+          ? '<span class="agora">respondendo agora</span>'
+          : s.ultimo_modelo
+            ? s.ultimo_modelo + (s.ha_segundos != null ? ' · ' + haQuanto(s.ha_segundos) : '')
+            : l.motivo;
+        const cota = s.rpm_restante != null
+          ? s.rpm_restante + ' rpm'
+          : s.rpd_restante != null ? s.rpd_restante + ' dia' : '—';
         return '<tr><td class="posicao">' + (i + 1) + '</td>' +
           '<td><span class="comlogo">' + logo(l.nome) + l.nome + '</span></td>' +
           '<td><span class="selo ' + par[0] + '">' + par[1] + '</span>' + espera + '</td>' +
           '<td>' + medidor(l.qualidade_num, l.estimado) + '</td>' +
           '<td class="num">' + (s.ok || 0) + (s.err ? ' / <span style="color:var(--ruim)">' + s.err + '</span>' : ' / 0') + '</td>' +
           '<td class="num">' + l.latencia + '</td>' +
-          '<td class="porque">' + l.motivo + '</td></tr>';
+          '<td class="num cota">' + cota + '</td>' +
+          '<td class="porque">' + recente + '</td></tr>';
       }).join('') + '</tbody></table>'
     : '<p class="vazio" style="padding:22px">Nenhuma chamada ainda. A fila aparece depois do primeiro turno.</p>';
 }
@@ -174,6 +184,51 @@ function desenharEstrategia() {
         recado('recado-prov', 'Vale a partir da próxima chamada.');
       } catch (e) { recado('recado-prov', e.message); }
     }));
+}
+
+function usoCurto(uso) {
+  if (!uso) return '';
+  const partes = [];
+  if (uso.total) partes.push(milhar(uso.total) + ' tokens');
+  if (uso.custo_usd != null) partes.push(dolar(uso.custo_usd));
+  return partes.join(' · ');
+}
+
+function nomeModoChamada(modo) {
+  if (modo === 'hybrid') return 'Reforçado';
+  if (modo === 'strict') return 'Dedicado';
+  return 'Normal';
+}
+
+function desenharAtividade(itens) {
+  const onde = $('atividade');
+  const fluxo = $('fluxo');
+  const atual = itens.find(a => a.status === 'em_andamento') || itens[0];
+  if (!atual) {
+    fluxo.innerHTML = '<div class="fluxo-vazio">A fila está pronta. A próxima tentativa aparece aqui enquanto acontece.</div>';
+    onde.innerHTML = '<p class="vazio">Nenhuma tentativa desde que o servidor subiu.</p>';
+    return;
+  }
+
+  const viva = atual.status === 'em_andamento';
+  const contexto = atual.contexto ? '<code>' + atual.contexto + '</code>' : 'contexto padrão';
+  const modo = nomeModoChamada(atual.modo);
+  fluxo.innerHTML = '<div class="fluxo-cabeca"><span class="ao-vivo' + (viva ? ' ligado' : '') + '">' +
+    (viva ? 'ao vivo' : 'mais recente') + '</span><span>' + modo + ' · ' + contexto + '</span></div>' +
+    '<div class="rota-viva"><b>RobinBandit</b><span class="fio' + (viva ? ' correndo' : '') + '"><i></i></span>' +
+    '<span class="destino">' + logo(atual.provedor) + '<b>' + atual.provedor + '</b></span></div>' +
+    '<p>' + (viva ? 'Aguardando resposta' : atual.status === 'sucesso' ? 'Resposta concluída' : 'Tentativa encerrada') +
+    (atual.modelo ? ' com <code>' + atual.modelo + '</code>' : '') + '.</p>';
+
+  onde.innerHTML = itens.slice(0, 4).map(a => {
+    const classe = a.status === 'sucesso' ? 'ok' : a.status === 'falha' ? 'erro' : 'rodando';
+    const duracao = a.duracao_ms != null ? a.duracao_ms + ' ms' : 'agora';
+    const detalhe = [a.modelo || a.contexto, usoCurto(a.uso), a.motivo].filter(Boolean).join(' · ');
+    return '<div class="atividade-linha"><span class="atividade-estado ' + classe + '"></span>' +
+      logo(a.provedor) + '<span class="atividade-quem"><b>' + a.provedor + '</b><small>' +
+      (detalhe || 'tentativa em andamento') + '</small></span>' +
+      '<span class="atividade-tempo"><b>' + duracao + '</b><small>' + haQuanto(a.ha_segundos) + '</small></span></div>';
+  }).join('');
 }
 
 function desenharOrdemCadeia() {
@@ -222,23 +277,17 @@ function desenharTiers() {
     desenharTiers();
   }));
 
-  // Conta nao e provedor: `ultra` e `ultra_max` batem no mesmo endpoint do
-  // OpenRouter com outra chave, e listar os tres lado a lado faria parecer que
-  // existem tres OpenRouters.
+  // Conta nomeada não entra como provedor independente.
   (config.provedores || [])
-    // Conta nao e provedor: `ultra` e `ultra_max` batem no mesmo endpoint do
-    // OpenRouter com outra chave. Sao credenciais com nome, e e na tela de
-    // Credenciais que elas aparecem.
+    // Contas derivadas aparecem em Credenciais, não como provedores.
     .filter(p => !p.conta_de)
-    // O fallback nao e provedor: e o aviso de que nenhum respondeu.
+    // O fallback é aviso, não provedor configurável.
     .filter(p => p.nome !== 'fallback')
-    // Catálogo é possibilidade, não estado atual. A tela abre só com o que a
-    // pessoa usa; os outros aparecem quando ela pede para escolher um novo.
+    // Catálogo é possibilidade; a tela abre com o que está em uso.
     .filter(p => provedoresDeTodos || p.na_cadeia)
     .forEach(p => (porTier[p.tier] || porTier[2]).push(p));
 
-  // Só os tiers que recebem provedor. O tier 9 existia como faixa vazia que
-  // não aceitava arrasto — uma caixa para não receber nada.
+  // Só tiers que recebem provedor.
   const tiersVisiveis = Object.keys(config.tiers).filter(n => porTier[n] && porTier[n].length);
   $('tiers').hidden = modoDeOrdem && !provedoresDeTodos;
   $('nota-fallback').hidden = modoDeOrdem && !provedoresDeTodos;
@@ -262,7 +311,7 @@ function desenharTiers() {
     });
     el.addEventListener('dragend', () => el.classList.remove('arrastando'));
   });
-  // A faixa do último recurso não recebe arrasto: ela existe para ser o fim.
+  // O último recurso não recebe arrasto.
   document.querySelectorAll('.faixa[data-tier]').forEach(faixa => {
     faixa.addEventListener('dragover', ev => { ev.preventDefault(); faixa.classList.add('alvo'); });
     faixa.addEventListener('dragleave', () => faixa.classList.remove('alvo'));
@@ -296,8 +345,7 @@ function desenharTiers() {
 let modelosDeTodos = false;
 
 function desenharModelos() {
-  // Por padrão, só quem está roteando: a lista inteira do catálogo é uma
-  // parede de 44 provedores para configurar os dois que a pessoa usa.
+  // Por padrão, mostra só quem está roteando.
   $('filtro-modelos').innerHTML =
     '<button class="aba" type="button" data-todos="false" aria-pressed="' + !modelosDeTodos + '">Na cadeia</button>' +
     '<button class="aba" type="button" data-todos="true" aria-pressed="' + modelosDeTodos + '">Todos do catálogo</button>';
@@ -306,11 +354,9 @@ function desenharModelos() {
     desenharModelos();
   }));
 
-  // Provedor sem lista tambem entra: era justamente nele que faltava poder
-  // acrescentar o primeiro modelo.
+  // Provedor sem lista também precisa poder receber o primeiro modelo.
   const lista = (config.provedores || [])
-    // O ultimo recurso nao tem modelo para escolher: ele e o aviso de que
-    // nenhum provedor respondeu.
+    // O último recurso não tem modelo configurável.
     .filter(p => p.nome !== 'fallback')
     .filter(p => modelosDeTodos || p.na_cadeia);
   $('modelos').innerHTML = lista.length ? lista.map(p => {
@@ -383,8 +429,7 @@ function desenharModelos() {
         const achados = (r.models || r.modelos || []).map(m => m.id || m.nome || m);
         const atual = listaDe(quem);
         const novos = achados.filter(m => atual.indexOf(m) < 0);
-        // Escolher, nao substituir: antes isto trocava a lista inteira pelos 12
-        // primeiros que o provedor devolvesse, apagando a ordem configurada.
+        // Escolhe sem substituir a ordem já configurada.
         caixa.innerHTML = novos.length
           ? '<p class="dica">' + quem + ' diz ter ' + achados.length +
             ' modelos. Clique para acrescentar:</p>' +
@@ -425,8 +470,7 @@ function desenharAbas(escolhida) {
   $('abas').innerHTML = ferramentas.map(f =>
     '<button class="aba" type="button" data-id="' + f.id + '" aria-pressed="' +
     (f.id === escolhida) + '">' + f.label +
-    // Uma marca na própria aba: quem abre a tela vê de onde já chegou chamada
-    // sem precisar clicar em cada uma para descobrir.
+    // Mostra conexão recente direto na aba.
     (f.conexao && f.conexao.ativo ? ' <span class="ponto-ok" title="já chamou"></span>' : '') +
     '</button>').join('');
 
@@ -445,8 +489,7 @@ function desenharAbas(escolhida) {
   const caixa = $('conexao');
   if (caixa) {
     if (!c) {
-      // Não afirma que está errado: a ferramenta pode estar configurada e
-      // ociosa. O que se sabe é só que nada chegou dela ainda.
+      // Pode estar configurada e ociosa; aqui só sabemos que nada chegou.
       caixa.className = 'conexao';
       caixa.innerHTML = '<b>Nenhuma chamada ainda.</b> Cole a configuração, use o ' +
         'agente uma vez e esta linha muda sozinha.';
@@ -487,9 +530,10 @@ async function carregarCredito() {
     const d = await (await fetch('saldo')).json();
     const contas = d.contas || [];
     $('credito').innerHTML = contas.length ? contas.map(c => {
-      const valor = c.saldo_usd != null ? 'US$ ' + Number(c.saldo_usd).toFixed(2)
+      const saldo = c.saldo_usd != null ? c.saldo_usd : c.saldo;
+      const valor = saldo != null ? 'US$ ' + Number(saldo).toFixed(2)
         : c.limite != null ? 'limite ' + c.limite : (c.detalhe || '—');
-      const baixo = c.saldo_usd != null && Number(c.saldo_usd) < 1;
+      const baixo = saldo != null && Number(saldo) < 1;
       return '<div class="credito">' + logo(c.provedor || c.provider || '') +
         '<span>' + (c.conta || c.provedor || c.provider || '') + '</span>' +
         '<span class="valor' + (baixo ? ' baixo' : '') + '">' + valor + '</span></div>';
@@ -508,15 +552,22 @@ async function carregarHistorico() {
         '<p class="vazio">Ainda não há dias registrados. Um dia vira uma barra aqui.</p>';
       return;
     }
-    $('historico').innerHTML = resumo.map(r => {
+    const legenda = '<div class="historico-legenda" aria-label="Legenda dos dias">' +
+      '<span><i data-s="vazio"></i>sem chamadas</span>' +
+      '<span><i data-s="ok"></i>saudável</span>' +
+      '<span><i data-s="atencao"></i>instável</span>' +
+      '<span><i data-s="ruim"></i>com falha</span></div>';
+    $('historico').innerHTML = legenda + resumo.map(r => {
       const faixa = (d.faixas || {})[r.provedor] || [];
       const barras = faixa.map(dia =>
         '<i data-s="' + dia.saude + '" title="' + dia.dia + ': ' + dia.ok + ' ok, ' +
         dia.err + ' erro' + (dia.motivo ? ': ' + dia.motivo : '') + '"></i>').join('');
-      const nota = r.dias_ruins
-        ? r.dias_ruins + (r.dias_ruins === 1 ? ' dia ruim' : ' dias ruins') +
-          (r.pior_motivo ? ' · ' + r.pior_motivo : '')
-        : 'nenhum dia ruim';
+      const alertas = [];
+      if (r.dias_de_atencao) alertas.push(r.dias_de_atencao + ' instável');
+      if (r.dias_ruins) alertas.push(r.dias_ruins + ' com falha');
+      const nota = r.dias_com_uso + ' dias usados · ' +
+        (alertas.length ? alertas.join(' · ') : 'todos saudáveis') +
+        (r.pior_motivo ? ' · ' + r.pior_motivo : '');
       return '<div class="linhadia"><div class="topo">' + logo(r.provedor) +
         '<span>' + r.provedor + '</span>' +
         '<span class="up' + (r.uptime < 99 ? ' baixo' : '') + '">' + r.uptime + '%</span></div>' +
@@ -530,8 +581,7 @@ async function carregarHistorico() {
 
 async function carregarConfig() {
   config = await (await fetch('config')).json();
-  // O idioma vem junto do resto da configuracao: e uma escolha como as outras,
-  // e uma chamada a menos do que pedir por uma rota so dele.
+  // Idioma vem junto da configuração geral.
   if (config.idioma && config.idioma !== IDIOMA) {
     IDIOMA = config.idioma;
     traduzirPagina();
@@ -561,9 +611,7 @@ function desenharIdioma() {
 
 async function trocarIdioma(qual) {
   if (qual === IDIOMA) return;
-  // Troca na tela antes da resposta do servidor: a escolha ja foi feita, e
-  // esperar o disco para ver o proprio clique e o tipo de espera que faz uma
-  // interface parecer quebrada.
+  // Atualiza a tela imediatamente após a escolha.
   IDIOMA = qual;
   traduzirPagina();
   desenharIdioma();
@@ -584,9 +632,7 @@ async function atualizar() {
     $('pulso').innerHTML = '<b>' + d.provedores.length + '</b> na cadeia<br>' +
       '<b>' + d.chamadas + '</b> chamadas';
     if (d.ferramentas) {
-      // Redesenha sempre, e não só na primeira vez: o estado de conexão muda
-      // enquanto a tela está aberta, e é justamente isso que se quer ver —
-      // colar a configuração, usar o agente, e a linha mudar sozinha.
+      // Redesenha porque a conexão pode mudar enquanto a tela está aberta.
       const escolhida = (document.querySelector('.aba[aria-pressed="true"]') || {}).dataset;
       ferramentas = d.ferramentas;
       const pedida = new URLSearchParams(window.location.search).get('ferramenta');
@@ -603,6 +649,7 @@ async function carregarCredenciais() {
     contas = await (await fetch('contas')).json();
     const d = await (await fetch('credenciais')).json();
     $('onde-cofre').textContent = d.cofre ? 'Cofre desta máquina: ' + d.cofre : '';
+    $('trazer-ambiente').hidden = !(d.credenciais || []).some(c => c.origem === 'ambiente');
   } catch (e) { $('credenciais').textContent = 'não consegui ler as contas'; return; }
 
   desenharReservados();
@@ -679,7 +726,7 @@ function desenharContas() {
   }));
 
   const lista = (contas.contas || [])
-    // O ultimo recurso nao tem conta: ele e o aviso de que ninguem respondeu.
+    // O último recurso não tem conta própria.
     .filter(c => c.provider !== 'fallback')
     .filter(c => contasDeTodos || c.configurada);
   if (!lista.length) {
@@ -695,8 +742,7 @@ function desenharContas() {
   $('credenciais').innerHTML = Object.keys(porProvedor).sort().map(prov =>
     '<div class="grupo-cred"><h2>' + logo(prov) + prov + '</h2>' +
     porProvedor[prov].map(c => {
-      // Quem autentica pelo CLI oficial nao tem chave para colar: pedir uma
-      // mandava a pessoa procurar algo que nao existe nesse fluxo.
+      // CLI oficial autentica fora do cofre.
       if (c.por_cli) {
         const qual = c.auth_type === 'codex_cli' ? 'Codex CLI' : 'Claude Code';
         const comando = c.auth_type === 'codex_cli' ? 'codex login' : 'claude';
@@ -706,15 +752,12 @@ function desenharContas() {
           (c.configurada ? 'autenticado' : 'não conectado') + '</span></div>' +
           '<p class="cli">Quem autentica é o <b>' + qual + '</b>, com a assinatura que você já usa. ' +
           'O RobinBandit não lê nem renova credencial. Ele só chama o executável.' +
-          // O detalhe so entra quando acrescenta (a versao do CLI, o motivo
-          // de nao estar logado). "autenticado" depois de "autenticado" e eco.
+          // Mostra detalhe só quando ele acrescenta informação.
           (c.detalhe && c.detalhe !== 'autenticado' ? ' <em>' + c.detalhe + '</em>' : '') +
           (c.configurada ? '' : ' Rode <code>' + comando + '</code> no terminal e recarregue.') +
           '</p></div>';
       }
-      // A marca de paga e da CHAVE. Em cima, na variavel, ela dizia que TODAS as
-      // chaves daquela conta eram pagas — e uma conta pode ter uma gratuita e
-      // uma paga lado a lado.
+      // A marca de paga é da chave, não da variável inteira.
       const chaves = (c.chaves || []).map(k =>
         '<span class="chave' + (k.paga ? ' e-paga' : '') + '">' +
         '<b' + (k.nome ? '' : ' class="anonima"') + '>' + (k.nome || 'sem nome') + '</b>' +
@@ -764,7 +807,7 @@ function desenharContas() {
           }),
         });
         if (!r.ok) throw new Error((await r.json()).detail || 'não deu');
-        // O valor nao volta nem para o campo: some daqui na hora.
+        // O valor nunca volta para a tela.
         campo.value = '';
         apelido.value = '';
         paga.checked = false;
@@ -809,7 +852,7 @@ function desenharContas() {
 }
 
 function milhar(n) {
-  // "48,0 mi" le-se; "48000000" faz contar zero.
+  // Compacta números grandes para leitura rápida.
   if (n >= 1e9) return (n / 1e9).toFixed(1).replace('.', ',') + ' bi';
   if (n >= 1e6) return (n / 1e6).toFixed(1).replace('.', ',') + ' mi';
   if (n >= 1e3) return (n / 1e3).toFixed(1).replace('.', ',') + ' mil';
@@ -827,8 +870,7 @@ const MESES = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'o
 const SEMANA = ['', 'seg', '', 'qua', '', 'sex', ''];
 
 function calendarioDe(dias) {
-  // Comeca no domingo da primeira semana, senao as linhas nao sao dias da
-  // semana — e um calendario cujas linhas nao sao dias nao e um calendario.
+  // Alinha a grade pelo domingo da primeira semana.
   const primeiro = new Date(dias[0].dia + 'T00:00:00Z');
   const vazios = primeiro.getUTCDay();
   const pico = Math.max(1, ...dias.map(x => x.total));
@@ -843,7 +885,7 @@ function calendarioDe(dias) {
     celulas.push('<i data-n="' + n + '" title="' + x.dia + ': ' + quanto + '"></i>');
   });
 
-  // Um rotulo por mes, largo o bastante para cobrir as semanas dele.
+  // Um rótulo por mês, agrupado por colunas.
   const colunas = Math.ceil(celulas.length / 7);
   const porColuna = [];
   for (let c = 0; c < colunas; c++) {
@@ -864,8 +906,7 @@ function calendarioDe(dias) {
   return '<div class="quadro">' +
     '<div class="meses" style="grid-template-columns:' +
     rotulos.map(r => 'calc(' + r.largura + ' * 15px)').join(' ') + '">' +
-    // Mes de uma semana so nao cabe o nome, e o rotulo cortado polui mais do
-    // que informa.
+    // Mês estreito demais fica sem rótulo.
     rotulos.map(r => '<span>' + (r.largura > 2 ? MESES[r.mes] : '') + '</span>').join('') +
     '</div>' +
     '<div class="semana">' + SEMANA.map(d => '<span>' + d + '</span>').join('') + '</div>' +
@@ -880,29 +921,30 @@ function calendarioDe(dias) {
 
 async function carregarUso() {
   let d;
-  try { d = await (await fetch('uso?dias=365')).json(); }
+  desenharPeriodosUso();
+  try { d = await (await fetch('uso?dias=' + periodoUso)).json(); }
   catch (e) { $('uso-calendario').textContent = 'não consegui ler o uso'; return; }
 
-  const mes = d.mes || {};
-  const tudo = d.total || {};
+  const mes = d.periodo || d.total || {};
+  const tudo = d.periodo || d.total || {};
   const dias = d.calendario || [];
   const gastou = (tudo.total || 0) > 0;
 
-  // Cinco zeros sobre uma grade vazia parecem defeito. Sem dado, o que vale
-  // dizer e por que ainda nao ha dado.
-  // O gasto e SEU, somado. Uma lista de 14 provedores no topo respondia
-  // "quanto cada um gastou" quando a pergunta era "quanto eu gastei".
+  // Sem dados, mostra explicação em vez de métricas zeradas.
   const comCusto = mes.chamadas_com_custo || 0;
   $('uso-numeros').innerHTML = gastou
     ? '<div><b class="verde">' + milhar(mes.entrada || 0) + '</b><span>entrada</span>' +
-      '<small>tokens nos últimos 30 dias</small></div>' +
+      '<small>tokens nos últimos ' + periodoUso + ' dias</small></div>' +
       '<div><b>' + milhar(mes.saida || 0) + '</b><span>saída</span>' +
-      '<small>' + (mes.cacheado ? milhar(mes.cacheado) + ' tokens vieram do cache' : 'tokens nos últimos 30 dias') + '</small></div>' +
+      '<small>' + (mes.cacheado ? milhar(mes.cacheado) + ' tokens vieram do cache' : 'tokens nos últimos ' + periodoUso + ' dias') + '</small></div>' +
       '<div><b class="ambar">' + (comCusto ? dolar(mes.custo_usd) : 'não informado') + '</b><span>custo em USD</span>' +
       '<small>' + (comCusto ? 'informado em ' + comCusto + ' de ' + mes.chamadas + ' chamadas' : 'nenhum provedor enviou preço') + '</small></div>' +
       '<div><b>' + (mes.chamadas || 0) + '</b><span>chamadas</span>' +
       '<small>' + milhar(mes.total || 0) + ' tokens no total</small></div>'
     : '';
+
+  $('uso-tendencia').innerHTML = gastou ? graficoTendencia(dias) : '';
+  $('uso-periodo-titulo').textContent = periodoUso === 365 ? 'Seu ano' : 'Dias do período';
 
   $('uso-calendario').innerHTML = gastou
     ? calendarioDe(dias)
@@ -939,7 +981,7 @@ async function carregarJanelas() {
         j.horas + 'h.</p></div>';
     }
     const pct = Math.round(j.fracao * 100);
-    // Passando de 80% do bloco, o que importa e que ele esta perto de virar.
+    // Acima de 80%, destaca proximidade do limite.
     const perto = j.fracao >= 0.8 ? ' perto' : '';
     return '<div class="janela"><div class="topo">' + logo(j.provedor) +
       '<span class="quem">' + j.provedor + '</span>' +
@@ -1044,14 +1086,11 @@ function desenharFormDeConta() {
 
 const TELAS = ['agora', 'provedores', 'modelos', 'credenciais', 'janelas', 'uso', 'conectar'];
 
-/* Extraida do listener para o botao dos primeiros passos poder chamar: dois
- * lugares trocando de tela com a mesma logica escrita duas vezes sairiam do
- * lugar no primeiro ajuste. */
+/* Navegação entre telas. */
 function trocarTela(qual) {
   if (!TELAS.includes(qual)) qual = 'agora';
   document.querySelectorAll('nav button[data-tela]').forEach(b => {
-    // Tem que ser "page", não string vazia: o realce da aba ativa vem de
-    // `nav button[aria-current="page"]` no CSS, e `toggleAttribute` grava "".
+    // O CSS realça apenas `aria-current="page"`.
     if (b.dataset.tela === qual) b.setAttribute('aria-current', 'page');
     else b.removeAttribute('aria-current');
   });
@@ -1061,6 +1100,39 @@ function trocarTela(qual) {
   else url.searchParams.set('tela', qual);
   if (qual !== 'conectar') url.searchParams.delete('ferramenta');
   window.history.replaceState({}, '', url);
+}
+
+function desenharPeriodosUso() {
+  const rotulos = { 7: '7 dias', 30: '30 dias', 90: '90 dias', 365: '1 ano' };
+  $('uso-periodos').innerHTML = Object.keys(rotulos).map(n =>
+    '<button class="aba" type="button" data-periodo="' + n + '" aria-pressed="' +
+    (Number(n) === periodoUso) + '">' + rotulos[n] + '</button>'
+  ).join('');
+  $('uso-periodos').querySelectorAll('[data-periodo]').forEach(b =>
+    b.addEventListener('click', () => {
+      periodoUso = Number(b.dataset.periodo);
+      carregarUso();
+    }));
+}
+
+function graficoTendencia(dias) {
+  if (!dias.length) return '';
+  const largura = 800, altura = 150, margem = 18;
+  const pico = Math.max(1, ...dias.map(d => Number(d.total || 0)));
+  const x = i => margem + (dias.length === 1 ? 0 : i / (dias.length - 1) * (largura - margem * 2));
+  const y = valor => altura - margem - Number(valor || 0) / pico * (altura - margem * 2);
+  const pontos = dias.map((d, i) => x(i).toFixed(1) + ',' + y(d.total).toFixed(1)).join(' ');
+  const area = margem + ',' + (altura - margem) + ' ' + pontos + ' ' +
+    x(dias.length - 1).toFixed(1) + ',' + (altura - margem);
+  const melhor = dias.reduce((a, b) => Number(a.total || 0) >= Number(b.total || 0) ? a : b);
+  return '<div class="tendencia-topo"><span>Tokens por dia</span><b>pico de ' +
+    milhar(melhor.total || 0) + ' em ' + melhor.dia + '</b></div>' +
+    '<svg viewBox="0 0 ' + largura + ' ' + altura + '" role="img" aria-label="Tendência de tokens no período">' +
+    '<defs><linearGradient id="area-verde" x1="0" y1="0" x2="0" y2="1">' +
+    '<stop offset="0" stop-color="#7C9A7F" stop-opacity=".32"/><stop offset="1" stop-color="#7C9A7F" stop-opacity="0"/></linearGradient></defs>' +
+    '<line x1="' + margem + '" y1="' + (altura - margem) + '" x2="' + (largura - margem) + '" y2="' + (altura - margem) + '"/>' +
+    '<polygon points="' + area + '"/><polyline points="' + pontos + '"/></svg>' +
+    '<div class="tendencia-eixo"><span>' + dias[0].dia + '</span><span>' + dias[dias.length - 1].dia + '</span></div>';
 }
 
 document.querySelectorAll('nav button[data-tela]').forEach(b =>

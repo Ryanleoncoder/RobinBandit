@@ -1,23 +1,4 @@
-"""Decide qual provedor de LLM tentar primeiro.
-
-O inimigo aqui não é custo, é COTA (429). A ordenação combina quatro sinais:
-
-- Cooldown: provedor que deu 429/erro vai pro fim da fila por um tempo (TTL que
-  cresce com reincidência). Não fica batendo em porta fechada.
-- Saúde: taxa de sucesso e latência (Peak EWMA — pico entra na hora, recuperação
-  decai devagar), mais as requisições abertas contra cada provedor.
-- Bandit: Thompson sampling Beta por célula (contexto, provedor), aprendendo
-  qual provedor rende melhor em cada contexto. O contexto é uma string opaca
-  escolhida por quem chama — tipo de tarefa, tier do modelo, tenant, o que
-  fizer sentido no seu agente.
-- Cota: penaliza quem está quase sem requests quando o provedor expõe isso no
-  header, evitando o 429 antes de ele acontecer.
-
-Estado em memória, com dump/load para sobreviver a restart.
-
-Registro passivo: o estado só muda com o resultado de requests REAIS — nunca
-cutucamos a LLM só pra medir. É o que preserva a cota.
-"""
+"""Ordenação adaptativa de provedores de LLM."""
 from __future__ import annotations
 
 import random
@@ -28,41 +9,30 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from .selection import coerce_selection
 
-# Quanto tempo cada tipo de falha tira o provedor do jogo vem de `erros.py`,
-# que le a tabela do YAML. O que fica aqui e o algoritmo — media de latencia,
-# bandit, ordenacao — que e aprendido, nao configurado.
+# Cooldowns vêm de `erros.py`; aqui fica o algoritmo de ordenação.
 from .erros import cooldown_de  # noqa: E402  (re-export: o router e quem aplica)
 
 
-# Peak EWMA (Envoy contrib / Finagle): a latência é assimétrica de propósito —
-# um pico entra no score na hora, e a recuperação decai devagar. Degradar custa
-# caro imediatamente; voltar ao normal precisa se provar em várias amostras.
+# Peak EWMA: pico entra rápido, recuperação decai devagar.
 # _LAT_RECOVERY é o peso da amostra nova SÓ na descida.
 _LAT_RECOVERY = 0.3
 _LAT_FLOOR_MS, _LAT_CEIL_MS = 150.0, 8000.0
 
-# Requisições abertas contra o provedor (o termo `active` do LEAST_REQUEST do
-# Envoy). Penalidade limitada: com _INFLIGHT_HALF abertas ela é metade do teto,
-# e satura em _INFLIGHT_PENALTY_MAX. A escala do score inteiro fica em ~0..1.2,
-# então 0.15 pesa sem dominar.
+# Penalidade limitada para requisições abertas contra o provedor.
 _INFLIGHT_PENALTY_MAX = 0.15
 _INFLIGHT_HALF = 2.0
 
 _COLD_START_MASS = 6.0                  # ~6 observações reais já movem o prior
 _SAMPLE_CAP = 400.0                     # teto de (alpha+beta) por célula
-# Decaimento (recência): a cada atualização o histórico encolhe um tico, então
-# dado velho pesa menos e o roteador se readapta se um provedor piora/melhora.
-# É o que evita "acumular = engessar num provedor rápido-porém-fraco".
+# Decaimento por recência evita engessar em medições antigas.
 _DECAY = 0.99
-# Recompensa de QUALIDADE: aprovou → +alpha forte; corrigiu → +beta. Assim
-# "sucesso" passa a significar RESPOSTA BOA, não só "não deu erro".
+# Recompensa de qualidade pesa mais que simples saúde operacional.
 _QUALITY_WEIGHT = 3.0
 
 _DEFAULT_QUALITY = 0.6
 _DEFAULT_TIER = 2
 _DEFAULT_CONTEXT = "default"
-# (qualidade, latência, sucesso) — equilibrado. Quem quiser privilegiar
-# qualidade ou velocidade em certos contextos passa a própria tabela.
+# (qualidade, latência, sucesso)
 _DEFAULT_WEIGHTS = (0.40, 0.30, 0.30)
 
 
@@ -116,20 +86,7 @@ class _ModelStat:
 
 
 class ProviderRouter:
-    """Estado + lógica de ordenação dos provedores. Thread-safe.
-
-    `priors` mapeia a chave do provedor para `{"tier": int, "quality": float}`.
-    `quality` (0..1) vira o prior do bandit e `tier` (1 = preferencial) um bônus
-    pequeno no score; provedor ausente usa 0.6 e tier 2.
-
-    `last_resort` é a chave do provedor que deve ficar sempre por último e que
-    nunca acumula evidência de qualidade — tipicamente um fallback local cuja
-    resposta não diz nada sobre qualidade de LLM.
-
-    `weights` mapeia contexto para o peso de (qualidade, latência, sucesso) no
-    score, permitindo que um contexto privilegie resposta boa e outro,
-    velocidade. Contexto sem entrada usa (0.40, 0.30, 0.30).
-    """
+    """Estado e lógica thread-safe de ordenação dos provedores."""
 
     def __init__(self, priors: Optional[Dict[str, Dict[str, Any]]] = None,
                  last_resort: Optional[str] = None,
@@ -141,14 +98,12 @@ class ProviderRouter:
                  seed: Optional[int] = None) -> None:
         if priors is not None and providers is not None:
             raise ValueError("use apenas providers; priors é o alias legado")
-        # provedor -> horas da janela; vazio significa "ninguem tem".
+        # provedor -> horas da janela.
         self._janelas: Dict[str, float] = {}
         self._lock = threading.RLock()
         self._stats: Dict[str, _Stat] = {}
         self._model_stats: Dict[str, _ModelStat] = {}
-        # Thompson sorteia: sem semente, a mesma situacao pode dar ordens
-        # diferentes. Em producao e assim que se quer (e o que faz explorar);
-        # num teste ou num replay, `seed` torna a decisao reproduzivel.
+        # `seed` existe para testes e replays reprodutíveis.
         self._rng = random.Random(seed)
         self._priors = providers if providers is not None else (priors or {})
         self._last_resort = last_resort
@@ -175,7 +130,7 @@ class ProviderRouter:
         if key == self._last_resort:
             return base
         try:
-            from .account_config import overrides_de_tier
+            from ..accounts.account_config import overrides_de_tier
             return int(overrides_de_tier().get(key, base))
         except Exception:
             return base
@@ -306,7 +261,7 @@ class ProviderRouter:
         if not horas:
             return
         try:
-            from . import janela
+            from ..state import janela
 
             janela.registrar(key, horas=horas, ok=ok, bloqueado=bloqueado)
         except Exception:
@@ -325,7 +280,7 @@ class ProviderRouter:
         um provedor bom que caiu um dia fica indistinguível de um ruim.
         """
         try:
-            from . import historico
+            from ..state import historico
 
             historico.registrar(key, ok=ok, motivo=motivo)
         except Exception:
@@ -345,7 +300,7 @@ class ProviderRouter:
         if not self._janelas.get(str(key or "").strip().lower()):
             return 0.0
         try:
-            from . import janela
+            from ..state import janela
 
             estado = janela.estado(key)
             return float(estado.get("falta_s") or 0.0) if estado.get("aberta") else 0.0

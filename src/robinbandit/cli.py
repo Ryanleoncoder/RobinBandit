@@ -1,25 +1,4 @@
-"""A linha de comando do RobinBandit.
-
-Existem duas interfaces: o painel, que é para entender — a fila de agora, o
-motivo de cada posição, o histórico —, e esta, que é para fazer sem navegador.
-
-A diferença importa em servidor. Até aqui, cadastrar uma chave só era possível
-pelo painel, então configurar uma máquina remota exigia tunelar a porta por ssh
-para colar uma API key. Os comandos abaixo chamam exatamente as mesmas funções
-que as rotas do painel chamam — `secrets.guardar`, `accounts`, `config` —, sem
-servidor no ar e sem duplicar regra nenhuma.
-
-Os nomes dos comandos são em inglês e não mudam de idioma. Ninguém escreve
-`git confirmar`: o que se digita é vocabulário da ferramenta, e traduzir isso
-quebraria todo script que a chamasse. O que muda de língua é a resposta.
-
-    robinbandit serve                    sobe o endpoint e o painel
-    robinbandit key add GROQ_API_KEY ...  grava no cofre
-    robinbandit key list                 o que está configurado
-    robinbandit providers                quem está na cadeia
-    robinbandit state dump.json          o que o router aprendeu
-    robinbandit language en              em que língua ele responde
-"""
+"""Linha de comando do RobinBandit."""
 from __future__ import annotations
 
 import argparse
@@ -27,9 +6,9 @@ import json
 import sys
 from typing import Any, List, Optional
 
-from ._banner import _write_banner
-from .idioma import t
-from .router import ProviderRouter
+from .ui._banner import _write_banner
+from .ui.idioma import t
+from .routing.router import ProviderRouter
 
 SUBCOMANDOS = ("serve", "key", "providers", "state", "language")
 
@@ -39,11 +18,7 @@ SUBCOMANDOS = ("serve", "key", "providers", "state", "language")
 # --------------------------------------------------------------------------
 
 def _carregar_config(caminho: Optional[str] = None):
-    """O mesmo YAML que o servidor usaria, achado do mesmo jeito.
-
-    Sem isto cada comando trabalharia sobre um catálogo diferente do que o
-    painel mostra, e "está configurado" passaria a depender de quem pergunta.
-    """
+    """Carrega o mesmo YAML que o servidor usaria."""
     from .bootstrap import achar_config, carregar_env
     from .config import RobinConfig
 
@@ -52,12 +27,7 @@ def _carregar_config(caminho: Optional[str] = None):
 
 
 def _diga(texto: str = "", destino=None) -> None:
-    """Imprime sem quebrar no console legado do Windows.
-
-    Ele usa cp1252, onde `->` existe e a seta `→` não: um caractere fora da
-    tabela vira `UnicodeEncodeError` e derruba o comando depois de o trabalho já
-    ter sido feito, que é o pior momento possível.
-    """
+    """Imprime sem quebrar em consoles legados do Windows."""
     saida = destino or sys.stdout
     try:
         print(texto, file=saida)
@@ -80,7 +50,7 @@ def _linha(esquerda: str, direita: str = "", largura: int = 22) -> None:
 # --------------------------------------------------------------------------
 
 def _key_add(args) -> int:
-    from . import secrets as _secrets
+    from .accounts import secrets as _secrets
     from .accounts import variaveis_conhecidas
 
     try:
@@ -121,7 +91,7 @@ def _key_add(args) -> int:
 
 
 def _key_list(args) -> int:
-    from . import secrets as _secrets
+    from .accounts import secrets as _secrets
     from .accounts import variaveis_conhecidas
 
     try:
@@ -163,7 +133,7 @@ def _key_list(args) -> int:
 
 
 def _key_rm(args) -> int:
-    from . import secrets as _secrets
+    from .accounts import secrets as _secrets
 
     if args.indice is None:
         apagou = _secrets.remover(args.variavel)
@@ -189,7 +159,7 @@ def _providers(args) -> int:
     except Exception as exc:  # noqa: BLE001
         return _erro(t("msg.config_erro", erro=exc))
 
-    from . import account_config
+    from .accounts import account_config
 
     catalogo = sorted((config.providers or {}).keys())
     ultimo = (config.last_resort or "").strip().lower()
@@ -261,7 +231,7 @@ def _providers(args) -> int:
 # --------------------------------------------------------------------------
 
 def _language(args) -> int:
-    from . import idioma as _idioma
+    from .ui import idioma as _idioma
 
     if not args.qual:
         _diga(t("msg.idioma_atual", qual=_idioma.escolhido()))

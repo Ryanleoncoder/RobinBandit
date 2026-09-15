@@ -36,7 +36,7 @@ sem credencial ou uma escolha explícita, o provedor fica de fora.
 
 **[Ver a página do projeto →](https://ryanleoncoder.github.io/RobinBandit/)**
 
-![A fila de agora no painel: cada provedor com estado, qualidade, OK/erro, latência e o motivo de quem está em espera](docs/imagens/painel-agora.png)
+![Painel Agora com estado da rota, tentativa em andamento, atividade recente e início da fila de provedores](docs/imagens/painel-agora.png)
 
 <p align="center"><sub>O painel em <code>/painel</code>: a ordem de agora e o motivo dela.</sub></p>
 
@@ -69,7 +69,7 @@ Se o primeiro provedor começa a devolver `429`, fica lento ou degrada, ele cont
 
 E dia ruim não é hipótese:
 
-![Últimos 30 dias por provedor: gemini com 98,46% e dois dias ruins por 429, claude_code com 97,3% e um dia de 529 overloaded, cerebras e groq sem nenhum dia ruim](docs/imagens/dia-ruim.png)
+![Últimos 30 dias por provedor, com legenda para dias sem chamadas, saudáveis, instáveis e com falha](docs/imagens/dia-ruim.png)
 
 Nenhum desses provedores está quebrado. Os quatro passam de 97%. O ponto é que
 a falha não é distribuída por igual: ela se concentra em dias, com motivo
@@ -272,7 +272,11 @@ response = await chain.complete(
 
 ### Seleção por request
 
-O Router suporta três políticas sem confundir escolha com fallback:
+O painel mostra quatro modos para a rota normal: adaptativo, prioridade por
+tier, lista fixa e rodízio. Além disso, clientes HTTP podem pedir uma rota
+Reforçada só para aquela chamada.
+
+No núcleo, a escolha por chamada continua simples:
 
 ```python
 from robinbandit import RouteSelection
@@ -282,15 +286,15 @@ RouteSelection.hybrid("groq:model-a")   # tenta o fixado; depois volta ao Router
 RouteSelection.strict("groq:model-a")   # somente o fixado; falha sem fallback
 ```
 
-No perfil Sentury, `router`, `reforçado` e `dedicado` são aliases desses três
+No perfil Sentury, `router`, `reforçado` e `dedicado` são aliases desses
 comportamentos. Na API universal, os nomes canônicos são `router`, `hybrid` e
 `strict`; `auto` é aceito somente como alias legado de `router`.
 
-Clientes HTTP genéricos podem pedir a fila Reforçado configurada no painel com
+Clientes HTTP genéricos podem pedir a fila Reforçada configurada no painel com
 `X-RobinBandit-Mode: reinforced`. A fila aceita várias contas em ordem e pode
 misturar assinaturas, créditos e contas gratuitas. Se todas falharem, o Router
-continua pela cadeia normal. Dedicado fica intencionalmente específico do
-Sentury. A decisão e os limites estão em
+continua pela cadeia normal. Dedicado fica fora do painel universal porque é
+um fluxo próprio do Sentury. A decisão e os limites estão em
 **[docs/selecao-por-chamada.md](docs/selecao-por-chamada.md)**.
 
 ## Configuração YAML
@@ -336,9 +340,10 @@ devolve o valor em payloads de status. Use `ROBINBANDIT_VAULT_PATH` (universal)
 ou o alias compatível `SENTURY_VAULT_PATH`.
 
 O catálogo, o cofre e as escolhas de conta pertencem ao próprio RobinBandit.
-Reforçado sem credencial registra a falha do alvo e continua pelo Router;
-Dedicado sem credencial termina sem fallback. Alterar uma chave reconstrói os
-adaptadores do Sentury sem exigir reinício.
+Reforçado sem credencial registra a falha do alvo e continua pelo Router. No
+Sentury, Dedicado usa `strict` e termina sem fallback quando a conta escolhida
+não está disponível. Alterar uma chave reconstrói os adaptadores do Sentury sem
+exigir reinício.
 
 #### ChatGPT Codex (OAuth)
 
@@ -363,6 +368,12 @@ desabilita shell, plugins, apps, browser, computador, imagem e subagentes. Isso
 mantém o Codex como modelo do Robin; ferramentas e efeitos continuam sob o
 controle do agente hospedeiro. O catálogo mostra apenas `auth_type: codex_cli`
 e o estado configurado, nunca material de autenticação.
+
+O mesmo Codex pode ser cliente e provedor sem formar um ciclo. A configuração
+normal do cliente continua apontando para o RobinBandit; o `app-server` que sai
+como provedor recebe `model_provider="openai"` somente naquele processo. O
+arquivo principal em `~/.codex/config.toml` não é reescrito. Essa sobreposição
+por `-c` faz parte da [configuração oficial do Codex](https://learn.chatgpt.com/docs/config-file/config-reference).
 
 O campo YAML `icon: openai` é apenas um identificador semântico. O agente
 hospedeiro é dono do asset visual e decide como apresentá-lo; o Robin não fica
@@ -440,23 +451,22 @@ robinbandit serve          # sobe o endpoint
 # abra http://localhost:8000/painel
 ```
 
-Uma página, servida pelo próprio pacote. Mostra a ordem de agora e **por que**
-ela está assim: qualidade, taxa de sucesso, latência e o motivo de quem está
-em espera. Não calcula nada: tudo vem do router, porque um painel que faz a
-própria conta mostra uma coisa enquanto o roteador decide por outra.
+Uma página, servida pelo próprio pacote. Mostra a ordem de agora, quem pode
+responder, quem está em espera, tokens, custo informado e o motivo de cada
+mudança na fila.
 
 São sete abas. O que cada uma resolve:
 
 ### Provedores: escolha a política da fila
 
-![Provedores por tier, com a escolha entre deixar o bandit aprender e fazer o tier mandar](docs/imagens/painel-provedores.png)
+![Rotas Normal e Reforçada e os modos Adaptativo, Prioridade por tier, Lista fixa e Rodízio](docs/imagens/painel-provedores.png)
 
-Tier é um grupo, e vários provedores cabem no mesmo. A tela oferece quatro
-políticas de roteamento:
+Tier é um grupo, e vários provedores cabem no mesmo. A rota normal oferece
+quatro modos:
 
-* **Deixar ele aprender** (`strategy: adaptive`): o tier é um bônus. Um
-  provedor do tier 2 que vem respondendo melhor passa na frente do tier 1.
-* **Meu tier manda** (`strategy: tier`): o tier é barreira. O tier 2 só é
+* **Adaptativo** (`strategy: adaptive`): o tier é um bônus. Um provedor do
+  tier 2 que vem respondendo melhor passa na frente do tier 1.
+* **Prioridade por tier** (`strategy: tier`): o tier é barreira. O tier 2 só é
   tentado quando o tier 1 inteiro falhou: *"vá nestes primeiro, mesmo que
   falhem; só depois gaste meus créditos"*.
 * **Lista fixa** (`strategy: fixed`) respeita a ordem editável da cadeia e só
@@ -464,7 +474,9 @@ políticas de roteamento:
 * **Rodízio** (`strategy: round_robin`) alterna a primeira tentativa depois de
   cada chamada real. Abrir o painel não move o cursor.
 
-Arrastar muda de grupo; o botão tira e devolve à cadeia.
+Reforçado é separado: uma chamada pode pedir uma fila de contas preferidas com
+`X-RobinBandit-Mode: reinforced`. Se todas falharem, ela volta para a rota
+normal.
 
 ### Modelos: a lista de cada provedor
 
@@ -482,16 +494,33 @@ A chave colada aqui vai para o cofre da máquina com permissão `0600` e **nunca
 volta em nenhum payload**, nem o começo, nem o fim. Um provedor pode ter mais
 de uma conta, e o rotador alterna entre elas quando uma bate a cota. Reforçado
 aceita várias contas em ordem, pagas ou gratuitas, antes de voltar à rota
-normal. Dedicado fica na interface do Sentury, onde fixa um provedor e uma LLM
-sem fallback. A separação está em
+normal. A interface universal não mostra Dedicado: o Sentury já controla essa
+seleção na própria interface. A separação técnica está em
 [seleção por chamada](docs/selecao-por-chamada.md).
 
 *Trazer para o cofre* copia o que hoje só existe no ambiente; o `.env` de
 origem não é tocado.
 
+Os dados locais ficam separados por assunto em `~/.robinbandit/`:
+
+| Arquivo | Conteúdo |
+|---|---|
+| `config.yaml` | ajustes pessoais do catálogo YAML |
+| `cofre.json` | segredos, com permissão `0600` |
+| `contas.json` | contas e a fila do Reforçado |
+| `preferencias.json` | idioma, modo, cadeia, tiers e modelos escolhidos |
+| `ranking.json` | aprendizado do roteador |
+| `historico.json` | saúde diária dos últimos 60 dias |
+| `uso.json` | tokens e custo informado dos últimos 365 dias |
+| `janelas.json` | blocos de uso das assinaturas |
+
+Uma instalação antiga que ainda mistura preferências em `contas.json` é
+migrada automaticamente. O destino é gravado antes da cópia antiga ser limpa.
+Nenhum desses arquivos vai para o repositório.
+
 ### Uso e custo
 
-![Tokens gastos: total de 30 dias, chamadas e um calendário de um quadrado por dia](docs/imagens/painel-uso.png)
+![Uso em 30 dias com tokens de entrada e saída, custo informado, chamadas, tendência diária e calendário](docs/imagens/painel-uso.png)
 
 O painel separa tokens de entrada, saída e cache, mostra chamadas e mantém um
 calendário de 365 dias. Custo em USD aparece quando o próprio provedor o inclui

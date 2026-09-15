@@ -1,31 +1,12 @@
-"""Catálogo de contas de LLM: quem é quem, e qual conta serve cada tier.
-
-Hoje a chave de um provedor é uma variável de ambiente, e várias contas do
-mesmo provedor viram um CSV anônimo que o KeyRotator sorteia. Isso impede duas
-coisas que o produto precisa:
-
-  1. Dizer QUAL conta serve o Ultra. Se você tem duas contas OpenRouter — uma
-     paga e uma de crédito grátis — não dá pra reservar a paga pro tier caro.
-  2. Saber de onde veio o custo. "openrouter" no painel não diz qual conta
-     gastou.
-
-O catálogo resolve declarando contas nomeadas. E a decisão de segurança que
-manda no desenho: **a conta aponta pro NOME da variável de ambiente, nunca
-guarda o valor**. Assim o catálogo é configuração comum — pode ir pro banco,
-pra API, pro YAML do tenant, aparecer no painel — enquanto o segredo continua
-onde segredo deve estar. "Cofre" aqui é o env/secret manager do deploy; isto é
-o índice dele.
-"""
+"""Catálogo de contas nomeadas e tiers atendidos por cada conta."""
 import os
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 if TYPE_CHECKING:
-    from .config import RobinConfig
+    from ..config import RobinConfig
 
-# As chaves vêm do `.env` pelo pydantic-settings, que NÃO as exporta pro
-# os.environ. Então procurar só no ambiente encontrava zero conta configurada.
-# Este hook deixa a conta perguntar ao settings sem nunca guardar o valor.
+# Permite consultar settings sem guardar valores secretos no catálogo.
 _FONTE_DE_SEGREDO: Any = None
 _FONTE_DE_CONFIG: Optional["RobinConfig"] = None
 
@@ -51,9 +32,7 @@ def _ler_do_ambiente(nome: str) -> str:
 
 
 def _ler_segredo(nome: str) -> str:
-    """Cofre primeiro, depois o ambiente. O cofre vence porque é a escolha
-    humana mais recente: se o env antigo ganhasse, trocar a chave no painel não
-    faria efeito e ninguém saberia por quê. Ver `secrets.py`."""
+    """Lê do cofre primeiro, depois do ambiente/settings."""
     from . import secrets
     return secrets.ler(nome) or _ler_do_ambiente(nome)
 
@@ -66,7 +45,6 @@ class Conta:
     key_env: str = ""
     models: List[str] = field(default_factory=list)
     label: str = ""
-    # Marca conta de crédito pago, pra não gastar à toa em tarefa lateral.
     paga: bool = False
     # Alguns provedores (ChatGPT Codex, Claude Code) delegam OAuth ao cliente
     # oficial e portanto não possuem API key que o Robin deva guardar.
@@ -75,23 +53,17 @@ class Conta:
 
     @property
     def por_cli(self) -> bool:
-        """Quem autentica é o CLI oficial, e a sessão é dele.
-
-        Só `codex_cli` era reconhecido aqui. Com `claude_cli` caindo no ramo da
-        chave, o Claude Code aparecia como "sem chave" no painel mesmo logado —
-        e a tela pedia uma API key que não existe nesse fluxo.
-        """
+        """Quem autentica é o CLI oficial, e a sessão é dele."""
         return self.auth_type.endswith("_cli")
 
     def _status_do_cli(self):
         if self.auth_type == "codex_cli":
-            from .codex_provider import codex_auth_status
+            from ..providers.codex_provider import codex_auth_status
 
             return codex_auth_status(self.auth_binary)
-        from .claude_code_provider import claude_code_auth_status
+        from ..providers.claude_code_provider import claude_code_auth_status
 
-        # `auth_binary` tem "codex" como padrao do dataclass; uma conta
-        # `claude_cli` escrita a mao sem `binary` consultaria o CLI errado.
+        # `auth_binary` padrão é "codex"; Claude sem binary usa "claude".
         binario = self.auth_binary if self.auth_binary not in ("", "codex") else "claude"
         return claude_code_auth_status(binario)
 
@@ -102,14 +74,11 @@ class Conta:
         return bool(self.key_env and _ler_segredo(self.key_env))
 
     def resolver_chave(self) -> str:
-        """Lê o segredo NA HORA do uso. Nunca fica no objeto, então não vaza em
-        log, repr, serialização ou payload do painel."""
+        """Lê o segredo apenas na hora do uso."""
         return _ler_segredo(self.key_env) if self.key_env else ""
 
     def para_painel(self) -> Dict[str, Any]:
-        """Visão segura: diz que existe, de onde vem e como termina — nunca o
-        valor. A dica (4 últimos) existe pra você reconhecer QUAL chave está
-        ali sem que ela sirva pra alguém."""
+        """Visão segura para o painel, sem retornar valores secretos."""
         from . import secrets
         if self.por_cli:
             status = self._status_do_cli()
@@ -117,8 +86,6 @@ class Conta:
                 "configurada": bool(status.configured),
                 "origem": self.auth_type if status.configured else "ausente",
                 "dica": "",
-                # O que fazer quando nao esta logado: sem isto o painel dizia
-                # "ausente" e deixava a pessoa procurando um campo de chave.
                 "detalhe": str(getattr(status, "detail", "") or ""),
             }
         else:
@@ -174,8 +141,7 @@ class CatalogoDeContas:
         self._contas[conta.id] = conta
 
     def apontar_tier(self, tier: str, conta_id: str) -> None:
-        """Escolhe a conta de um tier. Erro que ENSINA quando o id não existe:
-        apontar pro nada deixaria o tier caindo no fallback em silêncio."""
+        """Escolhe a conta de um tier e valida o alvo."""
         alvo = str(conta_id or "").strip()
         if alvo not in self._contas:
             disponiveis = ", ".join(sorted(self._contas)) or "nenhuma"
@@ -192,12 +158,7 @@ class CatalogoDeContas:
 
 
 def carregar_catalogo(bruto: Any) -> CatalogoDeContas:
-    """Monta o catálogo a partir de config (lista de dicts + mapa de tiers).
-
-    Aceita `{"contas": [...], "tiers": {...}}` ou só a lista. Entrada inválida
-    levanta em vez de virar catálogo vazio — catálogo vazio em silêncio faria
-    todo tier cair no fallback sem ninguém perceber.
-    """
+    """Monta o catálogo a partir de config."""
     if not bruto:
         return CatalogoDeContas()
     if isinstance(bruto, dict):
@@ -240,8 +201,7 @@ def carregar_catalogo(bruto: Any) -> CatalogoDeContas:
 
 
 def catalogo_das_settings(settings) -> CatalogoDeContas:
-    """Catálogo vindo de `SENTURY_ACCOUNTS` (JSON). Vazio = comportamento
-    antigo por env, sem quebrar nada."""
+    """Catálogo vindo de `SENTURY_ACCOUNTS` em JSON."""
     import json
 
     bruto = (getattr(settings, "SENTURY_ACCOUNTS", "") or "").strip()
@@ -266,7 +226,7 @@ def _config_efetiva(
             or ""
         ).strip()
         if path:
-            from .config import RobinConfig
+            from ..config import RobinConfig
             efetiva = RobinConfig.from_yaml(path)
     if efetiva is None:
         raise ValueError("catálogo de contas exige um RobinConfig vinculado")
@@ -284,15 +244,7 @@ def descobrir_do_ambiente(
     settings,
     config: Optional["RobinConfig"] = None,
 ) -> CatalogoDeContas:  # noqa: D401
-    """Monta o catálogo a partir do que JÁ está configurado no ambiente.
-
-    Sem isto o painel pedia que o usuário reescrevesse à mão, em JSON, uma
-    configuração que já existe — inútil. Aqui as chaves dele viram contas
-    automaticamente.
-
-    "Trazer pro cofre" é seguro justamente porque NADA de segredo se move: a
-    conta guarda o NOME da variável, e o valor continua no ambiente.
-    """
+    """Monta o catálogo a partir do ambiente/settings já configurados."""
     efetiva = _config_efetiva(config, settings)
     vincular_fonte(settings)
     vincular_config(efetiva)
@@ -342,8 +294,7 @@ def variaveis_conhecidas(
     settings,
     config: Optional["RobinConfig"] = None,
 ) -> List[str]:
-    """Lista branca do cofre: só variável que alguma conta declara pode ser
-    gravada pelo painel. Sem isso um POST escreveria qualquer configuração."""
+    """Lista branca de variáveis que o cofre aceita gravar."""
     efetiva = _config_efetiva(config, settings)
     nomes = {c.key_env for c in catalogo_efetivo(settings, efetiva).listar()}
     for spec in efetiva.providers.values():
@@ -358,18 +309,10 @@ def catalogo_efetivo(
     settings,
     config: Optional["RobinConfig"] = None,
 ) -> CatalogoDeContas:
-    """O catálogo que vale: o do ambiente como base, com o que o painel
-    declarou por cima.
-
-    A ordem importa e é a decisão de produto inteira: o `.env` de quem já roda
-    hoje continua sendo o padrão, e o painel **acrescenta**. Se o declarado
-    substituísse, adicionar a segunda chave do Groq apagaria a primeira, e quem
-    nunca abriu o painel perderia a configuração ao abrir uma vez.
-    """
+    """Catálogo efetivo: ambiente como base, painel por cima."""
     catalogo = descobrir_do_ambiente(settings, config)
 
-    # `SENTURY_ACCOUNTS` (JSON no env) continua valendo para quem configura por
-    # deploy; o painel entra depois porque é a palavra mais recente.
+    # `SENTURY_ACCOUNTS` continua valendo para deploys já configurados.
     efetiva = _config_efetiva(config, settings)
     camadas = [
         carregar_catalogo(efetiva.accounts),
@@ -377,9 +320,7 @@ def catalogo_efetivo(
         _catalogo_do_painel(),
     ]
 
-    # Contas primeiro, tiers depois: o painel pode apontar um tier pra uma conta
-    # descoberta do ambiente, e validar isso antes do merge recusaria um alvo
-    # perfeitamente válido.
+    # Mescla contas antes de validar tiers.
     for camada in camadas:
         for conta in camada.listar():
             catalogo.registrar(conta)
@@ -391,8 +332,7 @@ def catalogo_efetivo(
 
 
 def _catalogo_do_painel() -> CatalogoDeContas:
-    """Contas e tiers gravados pelo painel. Config quebrada não pode derrubar o
-    catálogo inteiro: nesse caso o ambiente segue sozinho."""
+    """Contas e tiers gravados pelo painel."""
     try:
         from . import account_config
         dados = account_config.carregar()

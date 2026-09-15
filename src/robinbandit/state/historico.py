@@ -1,13 +1,4 @@
-"""Um contador por provedor e por dia: ok, erro e o pior motivo do dia.
-
-O bandit decide com o que aconteceu agora, e isso é o certo para rotear. Mas
-não responde à pergunta que se faz olhando a conta do mês: *quem passou mais
-tempo no vermelho?* Um provedor que caiu um dia inteiro e voltou tem o mesmo
-"erro" de um que falha toda semana — até você ver os dois lado a lado.
-
-Um dia é uma linha. Sessenta dias cabem em 4 KB, e o arquivo é do dono da
-máquina: o histórico dele não viaja no clone.
-"""
+"""Histórico diário de sucesso e erro por provedor."""
 from __future__ import annotations
 
 import json
@@ -22,8 +13,7 @@ from typing import Any, Dict, List, Optional
 logger = logging.getLogger(__name__)
 
 ARQUIVO = "historico.json"
-# Dois meses: o bastante para ver um padrão e pouco o bastante para o arquivo
-# não virar um banco que ninguém pediu.
+# Dois meses bastam para ver padrão sem virar banco local.
 DIAS_GUARDADOS = 60
 
 _LOCK = threading.RLock()
@@ -73,7 +63,7 @@ def registrar(provedor: str, *, ok: bool, motivo: str = "") -> None:
         if not ok and motivo:
             linha["motivo"] = str(motivo)[:80]
 
-        # Poda aqui: sem isto o arquivo cresce para sempre, um dia por vez.
+        # Mantém o arquivo pequeno.
         if len(por_provedor) > DIAS_GUARDADOS:
             for velho in sorted(por_provedor)[:-DIAS_GUARDADOS]:
                 por_provedor.pop(velho, None)
@@ -95,11 +85,7 @@ def _saude_do_dia(linha: Dict[str, Any]) -> str:
 
 
 def faixa(provedor: str, dias: int = DIAS_GUARDADOS) -> List[Dict[str, Any]]:
-    """Os últimos `dias` de um provedor, do mais antigo para o mais novo.
-
-    Dia sem chamada nenhuma entra como vazio: ausência não é falha, e pintar
-    de vermelho o dia em que ninguém usou seria inventar um incidente.
-    """
+    """Os últimos `dias` de um provedor, do mais antigo para o mais novo."""
     por_provedor = _ler().get(str(provedor or "").strip().lower()) or {}
     hoje = datetime.now(timezone.utc)
     saida: List[Dict[str, Any]] = []
@@ -117,12 +103,7 @@ def faixa(provedor: str, dias: int = DIAS_GUARDADOS) -> List[Dict[str, Any]]:
 
 
 def resumo(provedores: Optional[List[str]] = None, dias: int = 30) -> List[Dict[str, Any]]:
-    """Quem passou mais tempo no vermelho, e há quanto tempo foi.
-
-    A ordem é por dias ruins, porque é essa a pergunta: um provedor bom que
-    caiu um dia aparece com `dias_ruins: 1` e uptime alto — o bastante para
-    você não julgá-lo pelo pior dia dele.
-    """
+    """Resumo de estabilidade diária por provedor."""
     dados = _ler()
     alvos = [str(p).strip().lower() for p in (provedores or dados.keys())]
     saida: List[Dict[str, Any]] = []
