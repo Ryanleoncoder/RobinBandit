@@ -9,15 +9,11 @@ import inspect
 import os
 from typing import Any, Dict, List, Optional
 
-from .config import RobinConfig
+from ..config import RobinConfig
 
 
 class UnavailableProvider:
-    """Alvo configurado, porém indisponível, preservando a política do modo.
-
-    Em Reforçado a falha segue para o Router; em Dedicado a seleção estrita
-    termina aqui. Isso impede que Dedicado sem chave vire Router em silêncio.
-    """
+    """Alvo configurado, porém indisponível."""
 
     def __init__(self, name: str, reason: str):
         self.supports_tools = False
@@ -34,12 +30,7 @@ class UnavailableProvider:
 
 
 class ReinforcedProvider:
-    """Tenta uma fila explícita de contas antes de devolver ao Router.
-
-    A fila é interna de propósito: o router enxerga o Reforçado como uma única
-    preferência e, somente se todas as contas falharem, segue para a cadeia
-    normal. Cada conta ainda preserva seu próprio adaptador, modelos e chave.
-    """
+    """Tenta uma fila explícita de contas antes de devolver ao Router."""
 
     def __init__(self, providers: List[Any], name: str = "ultra"):
         self.name = name
@@ -112,15 +103,8 @@ class ReinforcedProvider:
         raise RuntimeError("nenhuma conta do Reforçado respondeu") from ultimo_erro
 
 def _source_value(settings: Any, name: str, fallback_name: str = "") -> str:
-    """Resolve referência sem expor o valor.
-
-    Ordem: o que o chamador passou > cofre > ambiente. Quem monta o provedor
-    com um `settings` na mão escolheu aquele valor; o ambiente é o padrão de
-    quem não escolheu nada. Com o ambiente na frente, um `.env` carregado no
-    processo sobrescrevia em silêncio a configuração explícita — e o mesmo
-    código dava resultados diferentes conforme o que já estivesse carregado.
-    """
-    from . import secrets
+    """Resolve referência de segredo sem expor o valor."""
+    from ..accounts import secrets
 
     for candidate in (name, fallback_name):
         key = str(candidate or "").strip()
@@ -149,7 +133,7 @@ def _allowed_models(spec: Dict[str, Any], models: List[str]) -> List[str]:
 
 
 def _configure_runtime(config: RobinConfig) -> None:
-    from . import account_config, accounts, secrets
+    from ..accounts import account_config, secrets; from .. import accounts
 
     accounts.vincular_config(config)
     secrets.configure(config.secrets)
@@ -185,7 +169,7 @@ def build_provider(
     if configured_models is None:
         role_prefix = f"{str(model_role).strip().lower()}_" if model_role else ""
         try:
-            from .account_config import overrides_de_modelos
+            from ..accounts.account_config import overrides_de_modelos
             from_panel = _allowed_models(
                 spec, overrides_de_modelos().get(provider_key, [])
             )
@@ -297,7 +281,7 @@ def build_provider(
 def build_provider_set(config: RobinConfig, settings: Any = None) -> Dict[str, Any]:
     """Monta todos os provedores configurados, inclusive o fallback local."""
     _configure_runtime(config)
-    from . import account_config
+    from ..accounts import account_config
 
     # Um endpoint publico sem chave nao prova que a pessoa escolheu usa-lo.
     # Sem esta guarda, `chave_opcional` bastava para o LLM7 entrar sozinho na
@@ -340,8 +324,8 @@ def build_tier_provider(
     A resolução ocorre por request. Assim trocar uma chave ou apontar o tier
     para outra conta no painel passa a valer sem reiniciar o processo.
     """
-    from . import account_config
-    from .accounts import catalogo_efetivo
+    from ..accounts import account_config
+    from ..accounts import catalogo_efetivo
 
     _configure_runtime(config)
     tier_key = str(tier or "").strip().lower()
@@ -412,7 +396,7 @@ def describe_from_config(config: RobinConfig, settings: Any = None) -> List[Dict
     descriptions: List[Dict[str, Any]] = []
     for key, spec in config.providers.items():
         try:
-            from .account_config import overrides_de_modelos
+            from ..accounts.account_config import overrides_de_modelos
             panel_models = _allowed_models(spec, overrides_de_modelos().get(key, []))
         except Exception:
             panel_models = []
@@ -445,7 +429,7 @@ def describe_from_config(config: RobinConfig, settings: Any = None) -> List[Dict
             ).strip()
             has_auth = claude_code_auth_status(binary).configured
         try:
-            from .account_config import overrides_de_tier
+            from ..accounts.account_config import overrides_de_tier
             tier = int(overrides_de_tier().get(key, spec.get("tier", 2)))
         except Exception:
             tier = int(spec.get("tier", 2))

@@ -1,27 +1,4 @@
-"""Cofre de segredos do RobinBandit.
-
-O catálogo de contas ([accounts.py](accounts.py)) guarda o NOME da variável. Isso
-resolve metade do problema: dá pra falar de conta sem falar de segredo. A outra
-metade é a pergunta do usuário — *como eu ponho a chave sem vazar nada?* Pedir
-JSON no `.env` não serve: obriga a editar arquivo no servidor, e o `.env` é
-território do deploy.
-
-Então o cofre é um arquivo próprio, separado do `.env`, com três regras que o
-código inteiro respeita:
-
-  1. **O valor nunca sai.** Nenhum endpoint, log, payload ou repr devolve a
-     chave. Só devolve se existe, de onde veio e os 4 últimos caracteres — o
-     suficiente pra você reconhecer qual chave está lá, inútil pra quem rouba.
-  2. **Só nome conhecido entra.** Gravar variável arbitrária a partir de um
-     POST viraria porta pra sobrescrever config do processo. O cofre aceita
-     apenas as variáveis que o catálogo declara.
-  3. **Arquivo só do dono** (0600 onde o SO suporta), fora do controle de versão.
-
-Precedência de leitura: **cofre > ambiente > settings**. O cofre vem primeiro
-porque é a ação humana mais recente e explícita — se o painel gravasse e o env
-antigo continuasse vencendo, o usuário mudaria a chave e nada aconteceria, que
-é o pior tipo de falha: silenciosa. Em troca, o painel sempre mostra a origem.
-"""
+"""Cofre local de segredos do RobinBandit."""
 import json
 import os
 import threading
@@ -32,17 +9,7 @@ _LOCK = threading.RLock()
 _PATH_ENV = "ROBINBANDIT_VAULT_PATH"
 
 def _padrao() -> Path:
-    """A casa do usuário, e só ela.
-
-    Nasceu em `./.sentury/cofre.json`: relativo ao diretório de onde o processo
-    subiu, dentro do projeto. Um arquivo de segredos dentro de um repositório
-    espera por um `git add .` distraído — e mudar de terminal abria outro
-    cofre. Aqui não há caminho relativo nenhum: quem quiser outro lugar aponta
-    `ROBINBANDIT_VAULT_PATH`, que é como se faz em container.
-
-    Função, não constante, porque o `HOME` do processo pode mudar entre o
-    import e o uso (teste, serviço, troca de usuário).
-    """
+    """Caminho padrão do cofre na casa do usuário."""
     home = os.environ.get("ROBINBANDIT_HOME") or str(Path.home() / ".robinbandit")
     return Path(home) / "cofre.json"
 
@@ -55,9 +22,7 @@ def configure(metadata: Optional[Dict[str, Any]] = None) -> None:
 
 
 def caminho_do_cofre() -> Path:
-    """Onde o cofre vive. `ROBINBANDIT_VAULT_PATH` é o nome universal;
-    `SENTURY_VAULT_PATH` permanece compatível com instalações existentes.
-    montado, que é como se faz em container."""
+    """Caminho efetivo do cofre."""
     bruto = (os.environ.get(_PATH_ENV)
              or os.environ.get("ROBINBANDIT_VAULT_PATH")
              or os.environ.get("SENTURY_VAULT_PATH") or "").strip()
@@ -71,12 +36,8 @@ def _carregar() -> Dict[str, str]:
     try:
         dados = json.loads(caminho.read_text(encoding="utf-8") or "{}")
     except (OSError, json.JSONDecodeError):
-        # Cofre corrompido não pode derrubar o boot: o resto do sistema ainda
-        # lê do ambiente. O painel mostra "não configurada" e o usuário regrava.
         return {}
-    # Valor pode ser string (formato antigo, uma chave ou CSV) ou lista (formato
-    # novo, várias chaves). Converter para str aqui transformaria a lista no
-    # texto "['k1', 'k2']" e o segredo viraria lixo.
+    # Mantém compatibilidade com string, CSV, lista e lista de objetos.
     return {str(k): v for k, v in dados.items()} if isinstance(dados, dict) else {}
 
 
@@ -95,13 +56,7 @@ def _gravar(dados: Dict[str, str]) -> None:
 
 
 def _entradas(bruto: Any) -> List[Dict[str, Any]]:
-    """Cada chave com o que se sabe dela: valor, apelido e se é crédito pago.
-
-    Três formas convivem no disco, e todas precisam continuar sendo lidas:
-    a antiga (uma string, possivelmente CSV), a lista de strings, e esta —
-    lista de objetos. Rotacionar chave era adivinhar qual das quatro era a
-    paga olhando quatro dicas iguais de quatro caracteres.
-    """
+    """Normaliza formatos antigos e atuais de chaves no cofre."""
     saida: List[Dict[str, Any]] = []
     for item in (bruto if isinstance(bruto, list) else _partes(bruto)):
         if isinstance(item, dict):
@@ -119,8 +74,7 @@ def _entradas(bruto: Any) -> List[Dict[str, Any]]:
 
 
 def _partes(bruto: Any) -> List[str]:
-    """Quebra o CSV da forma antiga. O CSV existe porque é assim que o
-    KeyRotator recebe várias chaves da mesma conta."""
+    """Quebra o CSV da forma antiga."""
     if isinstance(bruto, str):
         return [p.strip() for p in bruto.split(",") if p.strip()]
     return [str(bruto).strip()] if bruto else []
@@ -132,9 +86,7 @@ def _lista(bruto: Any) -> List[str]:
 
 
 def _lista_legada(bruto: Any) -> List[str]:
-    """Aceita a forma antiga (uma string, possivelmente CSV) e a nova (lista).
-    O CSV existe porque é assim que o KeyRotator recebe várias chaves da mesma
-    conta; quebrar isso na leitura invalidaria cofres já gravados."""
+    """Aceita forma antiga string/CSV e forma nova em lista."""
     if isinstance(bruto, list):
         itens = bruto
     else:
@@ -156,16 +108,7 @@ def ler(nome: str) -> str:
 def guardar(nome: str, valor: str, permitidos: Optional[List[str]] = None,
             adicionar: bool = False, semente: str = "",
             rotulo: str = "", paga: bool = False) -> List[str]:
-    """Grava a chave e devolve as chaves resultantes.
-
-    `adicionar` acrescenta em vez de substituir: uma conta pode ter várias
-    chaves e o rotador alterna entre elas quando uma bate a cota.
-
-    `semente` é o que essa variável vale HOJE no ambiente. Sem ela, adicionar a
-    terceira chave a uma variável que vem do `.env` com duas apagaria as duas:
-    o cofre vence o ambiente, então gravar só a nova deixaria a conta com uma
-    chave só, em silêncio.
-    """
+    """Grava uma chave e devolve a lista resultante."""
     chave = str(nome or "").strip()
     if not chave:
         raise ValueError("nome da variável vazio.")
@@ -181,8 +124,7 @@ def guardar(nome: str, valor: str, permitidos: Optional[List[str]] = None,
         if adicionar and not atuais:
             atuais = _entradas(semente)   # preserva o que o ambiente já tinha
         conhecidos = {e["valor"] for e in atuais}
-        # Sem duplicar: a mesma chave duas vezes faria o rotador alternar entre
-        # ela e ela mesma depois de bater a cota.
+        # Evita duplicar a mesma chave.
         for k in novas:
             if k in conhecidos:
                 continue
@@ -194,8 +136,7 @@ def guardar(nome: str, valor: str, permitidos: Optional[List[str]] = None,
 
 
 def remover_chave(nome: str, indice: int) -> bool:
-    """Tira UMA das chaves da variável. Índice em vez do valor porque o valor
-    nunca sai daqui — o painel só conhece a posição e a dica."""
+    """Remove uma chave por índice, sem expor o valor."""
     chave = str(nome or "").strip()
     with _LOCK:
         dados = _carregar()
@@ -213,12 +154,7 @@ def remover_chave(nome: str, indice: int) -> bool:
 
 def descrever_chave(nome: str, indice: int, rotulo: Optional[str] = None,
                     paga: Optional[bool] = None) -> bool:
-    """Dá nome a uma chave, ou marca que ela é crédito pago.
-
-    Quatro chaves do mesmo provedor apareciam como quatro dicas de quatro
-    caracteres. Sem nome, rotacionar era adivinhar qual sair — e a paga era
-    indistinguível das gratuitas na hora de decidir.
-    """
+    """Dá nome a uma chave ou marca que ela é crédito pago."""
     chave = str(nome or "").strip()
     with _LOCK:
         dados = _carregar()
@@ -245,17 +181,13 @@ def remover(nome: str) -> bool:
 
 
 def dica(valor: str) -> str:
-    """A parte mostrável de um segredo: só o fim, e só se sobrar o que esconder.
-
-    Chave curta demais não ganha dica — mostrar 4 de 8 caracteres entrega
-    metade do segredo."""
+    """Parte segura para exibir de um segredo."""
     v = str(valor or "").strip()
     return f"...{v[-4:]}" if len(v) >= 12 else ("..." if v else "")
 
 
 def situacao(nome: str, do_ambiente: str = "") -> Dict[str, Any]:
-    """Visão segura de uma variável: existe? veio de onde? quantas chaves tem e
-    como cada uma termina? O valor nunca entra aqui."""
+    """Visão segura de uma variável, sem retornar o valor."""
     do_cofre = _entradas(_carregar().get(str(nome or "").strip()))
     entradas, origem = (
         (do_cofre, "cofre") if do_cofre
@@ -266,10 +198,6 @@ def situacao(nome: str, do_ambiente: str = "") -> Dict[str, Any]:
         "configurada": bool(chaves),
         "origem": origem,
         "dica": dica(chaves[0]) if chaves else "",
-        # Várias chaves da mesma conta é o caso normal: o rotador alterna entre
-        # elas quando uma bate a cota.
-        # Nome e marca por chave: sem eles, rotacionar e escolher a paga era
-        # comparar quatro dicas de quatro caracteres.
         "chaves": [
             {"i": i, "dica": dica(e["valor"]), "nome": e["nome"], "paga": e["paga"]}
             for i, e in enumerate(entradas)

@@ -121,7 +121,7 @@ def test_a_pagina_do_painel_vai_dentro_do_pacote():
     `package-data`, `pip install` entrega painel sem estilo — e isto aqui nao
     pega, porque a suite le o codigo-fonte. Quem pega e o job `pacote` do CI;
     este teste garante so que o layout esperado existe."""
-    from robinbandit.painel import pasta_do_painel
+    from robinbandit.ui.painel import pasta_do_painel
 
     pasta = pasta_do_painel()
     assert pasta.is_dir()
@@ -134,7 +134,7 @@ def test_arquivo_de_contas_nao_nasce_com_nome_de_outro_agente(monkeypatch, tmp_p
     """Nascia em `./.sentury/contas.json`: qualquer agente que usasse o
     RobinBandit ganhava uma pasta com o nome de outro, e mudar de terminal
     mudava a configuracao lida."""
-    from robinbandit import account_config
+    from robinbandit.accounts import account_config
 
     monkeypatch.setenv("ROBINBANDIT_HOME", str(tmp_path / "casa"))
     for nome in ("ROBINBANDIT_ACCOUNTS_PATH", "SENTURY_ACCOUNTS_PATH"):
@@ -152,7 +152,7 @@ def test_contas_ja_existentes_sao_migradas_sem_perder_nada(monkeypatch, tmp_path
     """Padronizar o caminho por baixo de quem ja configurou apagaria a
     configuracao da tela sem apagar arquivo nenhum. Entao: copia uma vez para a
     casa nova e segue de la — e o original fica onde esta."""
-    from robinbandit import account_config
+    from robinbandit.accounts import account_config
 
     monkeypatch.setenv("ROBINBANDIT_HOME", str(tmp_path / "casa"))
     for nome in ("ROBINBANDIT_ACCOUNTS_PATH", "SENTURY_ACCOUNTS_PATH"):
@@ -174,7 +174,7 @@ def test_cofre_nunca_nasce_dentro_de_um_projeto(monkeypatch, tmp_path):
     """Nascia em `./.sentury/cofre.json`. Um arquivo de segredos dentro de um
     repositorio espera por um `git add .` distraido, e trocar de terminal abria
     outro cofre."""
-    from robinbandit import secrets
+    from robinbandit.accounts import secrets
 
     monkeypatch.setenv("ROBINBANDIT_HOME", str(tmp_path / "casa"))
     for nome in ("ROBINBANDIT_VAULT_PATH", "SENTURY_VAULT_PATH"):
@@ -365,7 +365,7 @@ def test_desligar_um_provedor_tira_ele_da_cadeia_de_verdade(monkeypatch, tmp_pat
     """O painel gravava a escolha, respondia "vale no proximo arranque", e o
     provedor subia do mesmo jeito: `ordenar()` so lia o `chain_order` do YAML e
     ainda punha de volta quem nao estivesse listado."""
-    from robinbandit import account_config
+    from robinbandit.accounts import account_config
 
     monkeypatch.setenv("ROBINBANDIT_ACCOUNTS_PATH", str(tmp_path / "contas.json"))
     config = RobinConfig.from_yaml(RAIZ / "config" / "sentury.yaml")
@@ -382,7 +382,7 @@ def test_sem_escolha_gravada_quem_tem_chave_entra_mesmo_fora_da_lista(monkeypatc
     """Esquecer um nome no `chain_order` nao pode desligar uma chave que a
     pessoa cadastrou. A lista do YAML diz ORDEM; participacao so quando alguem
     escolhe explicitamente."""
-    from robinbandit import account_config
+    from robinbandit.accounts import account_config
 
     monkeypatch.setenv("ROBINBANDIT_ACCOUNTS_PATH", str(tmp_path / "vazio.json"))
     assert account_config.cadeia() == []
@@ -399,7 +399,7 @@ def test_sem_escolha_gravada_quem_tem_chave_entra_mesmo_fora_da_lista(monkeypatc
 def test_o_ultimo_recurso_nao_e_desligavel(monkeypatch, tmp_path):
     """Ele existe para o caso de todo o resto falhar: ficar sem ele e ficar sem
     resposta nenhuma."""
-    from robinbandit import account_config
+    from robinbandit.accounts import account_config
 
     monkeypatch.setenv("ROBINBANDIT_ACCOUNTS_PATH", str(tmp_path / "contas.json"))
     config = RobinConfig.from_yaml(RAIZ / "config" / "sentury.yaml")

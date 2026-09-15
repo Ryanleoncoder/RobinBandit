@@ -8,8 +8,9 @@ import pytest
 pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient  # noqa: E402
 
-from robinbandit import cli_tools  # noqa: E402
-from robinbandit.router import ProviderRouter  # noqa: E402
+from robinbandit.ui import cli_tools  # noqa: E402
+from robinbandit.painel import PAGINA as PAGINA_COMPAT  # noqa: E402
+from robinbandit.routing.router import ProviderRouter  # noqa: E402
 from robinbandit.server import create_app  # noqa: E402
 
 
@@ -19,6 +20,12 @@ class _Fake:
 
     async def complete(self, messages, temperature=0.2):
         return "ok"
+
+
+def test_import_publico_do_painel_continua_compativel():
+    from robinbandit.ui.painel import PAGINA
+
+    assert PAGINA_COMPAT is PAGINA
 
 
 def _cliente():
@@ -74,7 +81,7 @@ def test_acento_sobrevive_a_leitura_dos_arquivos():
 def test_a_pagina_e_montada_uma_vez_so():
     """Um marcador duplicado embutiria o JS duas vezes, e a pagina responderia
     200 do mesmo jeito."""
-    from robinbandit.painel import PAGINA
+    from robinbandit.ui.painel import PAGINA
 
     assert PAGINA.count("<style>") == 1
     # Dois scripts de proposito: o dicionario de traducao vem antes do codigo
@@ -120,7 +127,7 @@ def test_config_do_codex_usa_a_responses_api():
 
 
 def test_ferramenta_da_tela_conectar_pode_vir_da_url():
-    from robinbandit.painel import pasta_do_painel
+    from robinbandit.ui.painel import pasta_do_painel
 
     js = (pasta_do_painel() / "painel.js").read_text(encoding="utf-8")
     assert "get('ferramenta')" in js
@@ -262,7 +269,7 @@ def test_catalogo_mostra_quem_esta_dentro_e_quem_esta_fora():
 
 def test_tela_de_provedores_separa_cadeia_do_catalogo():
     """O catálogo inteiro não pode parecer a lista de serviços da pessoa."""
-    from robinbandit.painel import pasta_do_painel
+    from robinbandit.ui.painel import pasta_do_painel
 
     pasta = pasta_do_painel()
     html = (pasta / "pagina.html").read_text(encoding="utf-8")
@@ -274,7 +281,7 @@ def test_tela_de_provedores_separa_cadeia_do_catalogo():
 
 
 def test_rotas_normal_e_reforcada_ficam_em_provedores():
-    from robinbandit.painel import pasta_do_painel
+    from robinbandit.ui.painel import pasta_do_painel
 
     pasta = pasta_do_painel()
     js = (pasta / "painel.js").read_text(encoding="utf-8")
@@ -392,7 +399,7 @@ def test_dia_ruim_nao_e_o_mesmo_que_provedor_ruim():
     import tempfile
 
     os.environ["ROBINBANDIT_HOME"] = tempfile.mkdtemp(prefix="rb-hist-teste-")
-    from robinbandit import historico
+    from robinbandit.state import historico
 
     historico.esquecer()
     for _ in range(200):
@@ -413,7 +420,7 @@ def test_dia_sem_uso_nao_vira_incidente():
     import tempfile
 
     os.environ["ROBINBANDIT_HOME"] = tempfile.mkdtemp(prefix="rb-hist-vazio-")
-    from robinbandit import historico
+    from robinbandit.state import historico
 
     historico.esquecer()
     historico.registrar("alguem", ok=True)
@@ -446,7 +453,7 @@ def test_a_traducao_nao_tem_chave_pela_metade():
     portugues e ninguem percebe ate alguem ler a pagina em ingles."""
     import re
 
-    from robinbandit.painel import pasta_do_painel
+    from robinbandit.ui.painel import pasta_do_painel
 
     textos = (pasta_do_painel() / "textos.js").read_text(encoding="utf-8")
 
@@ -470,7 +477,7 @@ def test_todo_data_t_do_html_existe_no_dicionario():
     propria chave — `nav.agora` no lugar de `Agora`."""
     import re
 
-    from robinbandit.painel import pasta_do_painel
+    from robinbandit.ui.painel import pasta_do_painel
 
     pasta = pasta_do_painel()
     html = (pasta / "pagina.html").read_text(encoding="utf-8")
@@ -489,7 +496,7 @@ def test_os_blocos_que_o_js_esconde_existem_no_html():
     renomeado no HTML quebra a tela em silencio, sem erro em lugar nenhum."""
     import re
 
-    from robinbandit.painel import pasta_do_painel
+    from robinbandit.ui.painel import pasta_do_painel
 
     pasta = pasta_do_painel()
     html = (pasta / "pagina.html").read_text(encoding="utf-8")
@@ -508,7 +515,7 @@ def test_hidden_nao_e_sobrescrito_pelo_display_dos_componentes():
     deixava visiveis os blocos que o estado inicial dizia ter escondido."""
     import re
 
-    from robinbandit.painel import pasta_do_painel
+    from robinbandit.ui.painel import pasta_do_painel
 
     css = (pasta_do_painel() / "estilo.css").read_text(encoding="utf-8")
     regra = re.search(r"\[hidden\]\s*\{([^}]*)\}", css)
@@ -522,7 +529,7 @@ def test_cada_bloco_escondido_tem_o_titulo_como_irmao_anterior():
     em cima de um espaco vazio."""
     import re
 
-    from robinbandit.painel import pasta_do_painel
+    from robinbandit.ui.painel import pasta_do_painel
 
     html = (pasta_do_painel() / "pagina.html").read_text(encoding="utf-8")
     tela = re.search(r'<section id="tela-agora".*?</section>', html, re.S).group(0)

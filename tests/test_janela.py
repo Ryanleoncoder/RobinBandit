@@ -11,8 +11,9 @@ from pathlib import Path
 
 import pytest
 
-from robinbandit import RobinConfig, janela
-from robinbandit.router import ProviderRouter
+from robinbandit import RobinConfig
+from robinbandit.state import janela
+from robinbandit.routing.router import ProviderRouter
 
 RAIZ = Path(__file__).resolve().parents[1]
 

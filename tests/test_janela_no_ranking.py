@@ -11,7 +11,7 @@ A distincao vale *so* para quem tem janela declarada: num provedor por chave,
 """
 import time
 
-from robinbandit.router import ProviderRouter
+from robinbandit.routing.router import ProviderRouter
 
 
 def _saude(router, key, contexto=None):
@@ -24,7 +24,7 @@ def test_assinatura_que_bate_o_limite_nao_perde_saude(monkeypatch):
 
     # A janela esta aberta e falta uma hora para virar.
     monkeypatch.setattr(
-        "robinbandit.janela.estado",
+        "robinbandit.state.janela.estado",
         lambda p: {"aberta": True, "falta_s": 3600, "provedor": p},
     )
 
@@ -44,7 +44,7 @@ def test_mas_continua_em_espera_ate_a_virada(monkeypatch):
     router = ProviderRouter({"claude_code": {"tier": 1}}, seed=1)
     router.declarar_janelas({"claude_code": 5.0})
     monkeypatch.setattr(
-        "robinbandit.janela.estado",
+        "robinbandit.state.janela.estado",
         lambda p: {"aberta": True, "falta_s": 3600, "provedor": p},
     )
 
@@ -76,7 +76,7 @@ def test_erro_de_verdade_na_assinatura_ainda_conta(monkeypatch):
     router = ProviderRouter({"claude_code": {"tier": 1}}, seed=1)
     router.declarar_janelas({"claude_code": 5.0})
     monkeypatch.setattr(
-        "robinbandit.janela.estado",
+        "robinbandit.state.janela.estado",
         lambda p: {"aberta": True, "falta_s": 3600, "provedor": p},
     )
 
@@ -95,7 +95,7 @@ def test_janela_fechada_cai_no_comportamento_normal(monkeypatch):
     router = ProviderRouter({"claude_code": {"tier": 1}}, seed=1)
     router.declarar_janelas({"claude_code": 5.0})
     monkeypatch.setattr(
-        "robinbandit.janela.estado",
+        "robinbandit.state.janela.estado",
         lambda p: {"aberta": False, "falta_s": 0, "provedor": p},
     )
 
@@ -122,7 +122,7 @@ def test_a_assinatura_volta_ao_topo_depois_da_virada(monkeypatch):
         router.record_success("groq", 400.0, context="codigo")
 
     monkeypatch.setattr(
-        "robinbandit.janela.estado",
+        "robinbandit.state.janela.estado",
         lambda p: {"aberta": True, "falta_s": 60, "provedor": p},
     )
     router.record_failure("claude_code", "rate_limit", context="codigo")

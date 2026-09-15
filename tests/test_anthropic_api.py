@@ -12,8 +12,8 @@ import pytest
 pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient  # noqa: E402
 
-from robinbandit import anthropic_api  # noqa: E402
-from robinbandit.router import ProviderRouter  # noqa: E402
+from robinbandit.api import anthropic_api  # noqa: E402
+from robinbandit.routing.router import ProviderRouter  # noqa: E402
 from robinbandit.server import create_app  # noqa: E402
 
 

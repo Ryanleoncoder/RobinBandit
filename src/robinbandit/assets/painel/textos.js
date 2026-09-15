@@ -1,19 +1,9 @@
-/* As duas línguas em que o painel fala.
- *
- * A documentação virou bilíngue e a página do projeto está em inglês; quem
- * chegasse por lá instalava e encontrava a interface em português. O código e
- * os comentários continuam em português — isto é sobre o que o produto
- * responde, não sobre quem o mantém.
- *
- * Um arquivo só, com as duas línguas lado a lado: separar em `pt.js` e `en.js`
- * faria a tradução faltante virar arquivo silenciosamente incompleto, e aqui
- * uma chave sem par salta aos olhos na revisão.
- *
- * Acrescentar um idioma é acrescentar uma chave em cada entrada e o código em
- * `IDIOMAS` do `idioma.py`.
- */
+/* Textos do painel, com idiomas lado a lado para facilitar revisão. */
 const TEXTOS = {
   /* --- navegação --- */
+  'nav.operar':      { pt: 'Operar',       en: 'Operate' },
+  'nav.configurar':  { pt: 'Configurar',   en: 'Configure' },
+  'nav.integrar':    { pt: 'Integrar',     en: 'Integrate' },
   'nav.agora':       { pt: 'Agora',       en: 'Now' },
   'nav.provedores':  { pt: 'Provedores',  en: 'Providers' },
   'nav.modelos':     { pt: 'Modelos',     en: 'Models' },
@@ -25,10 +15,15 @@ const TEXTOS = {
   /* --- tela: agora --- */
   'agora.titulo': { pt: 'O que está acontecendo', en: 'What is happening' },
   'agora.intro': {
-    pt: 'Veja a saúde de quem está disponível, qual modo está ativo e por que a fila ficou nesta ordem.',
-    en: 'See who is available, which mode is active, and why the queue is in this order.'
+    pt: 'Veja quem pode responder agora, quem está em espera e qual rota está em uso.',
+    en: 'See who can answer now, who is waiting, and which route is in use.'
   },
   'agora.fila':      { pt: 'A fila de agora',    en: 'The queue right now' },
+  'agora.atividade': { pt: 'Atividade recente',  en: 'Recent activity' },
+  'agora.atividade_nota': {
+    pt: 'Só metadados operacionais desta execução. Conversas não são guardadas aqui.',
+    en: 'Operational metadata from this run only. Conversations are not stored here.'
+  },
   'agora.credito':   { pt: 'Crédito restante',   en: 'Credit left' },
   'agora.30dias':    { pt: 'Últimos 30 dias',    en: 'Last 30 days' },
   'agora.sem_hist':  { pt: 'sem histórico ainda', en: 'no history yet' },
@@ -36,13 +31,26 @@ const TEXTOS = {
   /* --- tela: provedores --- */
   'prov.titulo': { pt: 'Provedores e rota', en: 'Providers and route' },
   'prov.intro': {
-    pt: 'Escolha a política da fila. Os provedores disponíveis continuam protegidos por saúde e cooldown em todos os modos.',
-    en: 'Choose the queue policy. Available providers remain protected by health and cooldown in every mode.'
+    pt: 'Defina como a rota normal escolhe provedores e quando usar a fila Reforçada por chamada.',
+    en: 'Set how the normal route chooses providers and when to use the Reinforced queue per request.'
   },
-  'prov.como_decidir': { pt: 'Rota normal', en: 'Normal route' },
+  'prov.como_decidir': { pt: 'Modo da rota normal', en: 'Normal route mode' },
+  'prov.rota_padrao': { pt: 'sempre ativa', en: 'always on' },
+  'prov.rota_opcional': { pt: 'opcional', en: 'optional' },
+  'prov.normal': { pt: 'Normal', en: 'Normal' },
+  'prov.reforcado': { pt: 'Reforçado', en: 'Reinforced' },
+  'prov.ou': { pt: 'ou', en: 'or' },
+  'prov.normal_desc': {
+    pt: 'Usada por padrão. Escolha abaixo se ela aprende, segue tiers, lista fixa ou rodízio.',
+    en: 'Used by default. Choose below whether it learns, follows tiers, uses a fixed list, or rotates.'
+  },
+  'prov.reforcado_desc': {
+    pt: 'Tenta contas preferidas primeiro. Se todas falharem, volta para a rota normal.',
+    en: 'Tries preferred accounts first. If all fail, it returns to the normal route.'
+  },
   'prov.normal_header': {
-    pt: 'Esta é a rota padrão, usada sem header ou com',
-    en: 'This is the default route, used without a header or with'
+    pt: 'Usada sem header ou com',
+    en: 'Used without a header or with'
   },
   'prov.modo.adaptive': { pt: 'Adaptativo', en: 'Adaptive' },
   'prov.modo.tier': { pt: 'Prioridade por tier', en: 'Tier priority' },
@@ -65,37 +73,37 @@ const TEXTOS = {
     en: 'No provider in your chain. Open the catalog to choose one.'
   },
   'prov.ultimo': {
-    pt: 'Se todos falharem, ninguém assume o lugar deles: o RobinBandit devolve um aviso dizendo que nenhum provedor respondeu. Isso não é um provedor de reserva, e por isso não aparece em nenhum tier.',
-    en: 'If they all fail, nobody takes their place: RobinBandit returns a notice saying no provider answered. That is not a backup provider, which is why it shows up in no tier.'
+    pt: 'Se todos falharem, o RobinBandit devolve um aviso. Esse aviso não é provedor e não entra em tier.',
+    en: 'If everyone fails, RobinBandit returns a notice. That notice is not a provider and does not join a tier.'
   },
 
   /* --- tela: modelos --- */
   'mod.titulo': { pt: 'Modelos de cada provedor', en: "Each provider's models" },
   'mod.intro': {
-    pt: 'Quando o RobinBandit escolhe um provedor, ele tenta os modelos desta lista de cima para baixo, e para no primeiro que responder. Acrescente um modelo pelo id, ou pergunte ao provedor o que ele tem hoje.',
-    en: 'Once RobinBandit picks a provider, it tries the models on this list top-down and stops at the first one that answers. Add a model by id, or ask the provider what it has today.'
+    pt: 'Depois de escolher um provedor, o RobinBandit tenta estes modelos de cima para baixo. Adicione um id manualmente ou consulte o catálogo atual do provedor.',
+    en: 'After choosing a provider, RobinBandit tries these models from top to bottom. Add an id manually or ask the provider for its current catalog.'
   },
 
   /* --- tela: credenciais --- */
   'cred.titulo': { pt: 'Contas e credenciais', en: 'Accounts and credentials' },
   'cred.intro': {
-    pt: 'A chave que você colar aqui vai para o cofre desta máquina, com permissão 0600. Ela nunca volta na resposta, nem mesmo parcialmente. Um provedor pode ter mais de uma conta, e o rotador alterna entre elas quando uma bate a cota.',
-    en: 'A key pasted here goes into this machine’s vault with 0600 permissions. It never comes back in a response, even partially. A provider can have more than one account, and the rotator alternates between them when one hits its quota.'
+    pt: 'Chaves ficam no cofre local e nunca voltam na resposta. Você pode ter mais de uma conta por provedor e alternar quando uma bater a cota.',
+    en: 'Keys stay in the local vault and never come back in responses. You can keep more than one account per provider and rotate when one hits quota.'
   },
   'cred.so_ambiente': { pt: 'Chaves que estão só no ambiente', en: 'Keys that live only in the environment' },
   'cred.copie_1': {
-    pt: 'Copie para o cofre do RobinBandit e ele deixa de depender do',
-    en: 'Copy them into RobinBandit’s vault and it stops depending on the'
+    pt: 'Copie para o cofre local para não depender do',
+    en: 'Copy them into the local vault so it no longer depends on the'
   },
   'cred.copie_2': {
-    pt: 'do projeto que o hospeda. O arquivo de origem não é tocado, e o que já está no cofre fica como está.',
-    en: 'of the project hosting it. The source file is not touched, and what is already in the vault stays as it is.'
+    pt: 'do projeto. O arquivo original não é alterado.',
+    en: 'of the project. The original file is not changed.'
   },
   'cred.trazer':     { pt: 'trazer para o cofre',   en: 'bring into the vault' },
   'cred.add_conta':  { pt: 'Adicionar outra conta', en: 'Add another account' },
   'cred.add_intro': {
-    pt: 'Mesma conta do provedor com outra chave, ou uma segunda conta sua. A chave é guardada pelo nome de variável que você escolher.',
-    en: 'The same provider account with another key, or a second account of yours. The key is stored under the variable name you choose.'
+    pt: 'Use outra chave do mesmo provedor ou uma segunda conta sua. O nome da variável identifica essa conta.',
+    en: 'Use another key from the same provider or a second account of yours. The variable name identifies that account.'
   },
   'cred.paga':       { pt: 'crédito pago', en: 'paid credit' },
   'cred.criar':      { pt: 'criar conta',  en: 'create account' },
@@ -113,15 +121,15 @@ const TEXTOS = {
   /* --- tela: janelas --- */
   'jan.titulo': { pt: 'Janelas de assinatura', en: 'Subscription windows' },
   'jan.intro': {
-    pt: 'Assinatura não fica lenta quando o uso acaba: ela para e volta numa hora previsível. Veja quanto falta para decidir entre esperar e trocar de provedor.',
-    en: 'A subscription does not get slow when usage runs out: it stops and returns at a predictable time. See how long remains before choosing whether to wait or switch providers.'
+    pt: 'Veja quando uma assinatura volta a responder e decida se vale esperar ou seguir com outro provedor.',
+    en: 'See when a subscription can answer again and decide whether to wait or move to another provider.'
   },
 
   /* --- tela: uso --- */
   'uso.titulo': { pt: 'Uso e custo', en: 'Usage and cost' },
   'uso.intro': {
-    pt: 'Acompanhe chamadas, tokens de entrada e saída e o custo informado pelo provedor.',
-    en: 'Track calls, input and output tokens, and costs reported by the provider.'
+    pt: 'Acompanhe chamadas, tokens de entrada, tokens de saída e custo quando o provedor informa.',
+    en: 'Track calls, input tokens, output tokens, and cost when the provider reports it.'
   },
   'uso.ano':         { pt: 'Seu ano',          en: 'Your year' },
   'uso.por_provedor': { pt: 'Abrir por provedor', en: 'Break down by provider' },
@@ -133,12 +141,12 @@ const TEXTOS = {
   /* --- tela: conectar --- */
   'con.titulo': { pt: 'Plugar uma ferramenta', en: 'Plug in a tool' },
   'con.intro_1': {
-    pt: 'Qualquer ferramenta que deixe trocar o endereço da API passa a rotear por aqui. Copie a configuração da sua e cole onde ela indica. No campo',
-    en: 'Any tool that lets you change the API address starts routing through here. Copy the configuration for yours and paste it where it says. In the'
+    pt: 'Escolha sua ferramenta, copie a configuração e cole onde ela permite trocar a API. No campo',
+    en: 'Choose your tool, copy the configuration, and paste it where it lets you change the API. In the'
   },
   'con.intro_2': {
-    pt: 'vai um apelido do seu trabalho, como "codigo" ou "revisao". O RobinBandit aprende separado para cada um.',
-    en: 'field goes a nickname for your work, such as "code" or "review". RobinBandit learns separately for each one.'
+    pt: 'use um apelido do trabalho, como "codigo" ou "revisao". O aprendizado fica separado por apelido.',
+    en: 'field, use a work nickname such as "code" or "review". Learning stays separate per nickname.'
   },
   'con.copiar': { pt: 'Copiar', en: 'Copy' },
   'con.copiado': { pt: 'Copiado', en: 'Copied' },
@@ -159,8 +167,8 @@ const TEXTOS = {
   },
   'inicio.p2.titulo': { pt: 'Escolha quem envia os pedidos', en: 'Choose who sends requests' },
   'inicio.p2.texto': {
-    pt: 'O login do Claude Code e do ChatGPT Codex permite que eles respondam. Para rotear chamadas, ainda falta configurar um cliente na aba Conectar.',
-    en: 'Claude Code and ChatGPT Codex login lets them answer. To route calls, configure a client in the Connect tab.'
+    pt: 'Claude Code e ChatGPT Codex podem responder quando seus CLIs estão logados. Para enviar chamadas ao RobinBandit, configure um cliente na aba Conectar.',
+    en: 'Claude Code and ChatGPT Codex can answer when their CLIs are logged in. To send calls to RobinBandit, configure a client in the Connect tab.'
   },
   'inicio.p2.feito': {
     pt: '{quem} já chamou. A fila abaixo passa a mostrar as decisões.',
@@ -168,8 +176,8 @@ const TEXTOS = {
   },
   'inicio.p3.titulo': { pt: 'Faça uma chamada', en: 'Make one call' },
   'inicio.p3.texto': {
-    pt: 'A partir da primeira chamada, esta tela mostra quem está na frente e por quê. Antes disso não há o que mostrar.',
-    en: 'From the first call on, this screen shows who is ahead and why. Before that there is nothing to show.'
+    pt: 'Depois da primeira chamada, esta tela mostra a fila real, os motivos e os bloqueios.',
+    en: 'After the first call, this screen shows the real queue, reasons, and blocks.'
   },
   'inicio.ir_conectar': { pt: 'Configurar um cliente', en: 'Configure a client' },
 
@@ -218,9 +226,7 @@ const TEXTOS = {
   'tempo.h':         { pt: 'há {n}h',               en: '{n}h ago' }
 };
 
-/* O idioma que o servidor diz estar valendo. Fica aqui como padrão até a
- * primeira resposta de `config`; trocar sem recarregar a página é o mínimo que
- * se espera de um seletor de idioma. */
+/* Idioma inicial até a primeira resposta de `config`. */
 let IDIOMA = 'pt';
 
 function T(chave, campos) {
@@ -235,8 +241,7 @@ function T(chave, campos) {
   return texto;
 }
 
-/* Aplica a tradução em tudo que está marcado no HTML. Chamado na carga e a cada
- * troca de idioma. */
+/* Aplica tradução aos elementos marcados no HTML. */
 function traduzirPagina() {
   document.querySelectorAll('[data-t]').forEach(el => {
     el.textContent = T(el.dataset.t);

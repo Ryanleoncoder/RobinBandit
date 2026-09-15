@@ -7,7 +7,7 @@ para o ingles nao ficar sem nenhuma cobertura.
 """
 import pytest
 
-from robinbandit import idioma
+from robinbandit.ui import idioma
 
 
 def test_mesma_chave_responde_nas_duas_linguas():
