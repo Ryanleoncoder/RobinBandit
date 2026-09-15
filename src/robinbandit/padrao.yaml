@@ -183,7 +183,7 @@ providers:
     api_key_env: OPENROUTER_API_KEY
     models_env: OPENROUTER_MODELS
     models: [openrouter/free, deepseek/deepseek-v4-flash, deepseek/deepseek-v4-pro]
-    extra_headers: {X-Title: RobinBandit}
+    extra_headers: {X-OpenRouter-Title: RobinBandit}
     # Havia dois "provedores" aqui, `ultra` e `ultra_max`, e nunca foram dois:
     # mesmo endpoint, a mesma chave (`ultra_max` caia em API_KEY_ULTRA pelo
     # fallback) e so o modelo mudando. Listados ao lado do OpenRouter, pareciam

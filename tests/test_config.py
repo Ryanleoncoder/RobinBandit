@@ -15,6 +15,23 @@ from robinbandit.providers import (
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def test_openrouter_usa_atribuicao_do_host_sem_render_antigo():
+    config = RobinConfig.from_mapping({
+        "providers": {
+            "openrouter": {
+                "adapter": "openrouter",
+                "models": ["openrouter/free"],
+                "extra_headers": {"X-OpenRouter-Title": "Meu host"},
+            },
+        },
+    })
+
+    provider = build_provider(config, "openrouter", api_key="segredo")
+
+    assert provider.extra_headers == {"X-OpenRouter-Title": "Meu host"}
+    assert "onrender.com" not in repr(provider.extra_headers)
+
+
 def test_carrega_yaml_sentury_e_preserva_catalogo():
     config = RobinConfig.from_yaml(ROOT / "config" / "sentury.yaml")
     assert config.agent_mode == "sentury"

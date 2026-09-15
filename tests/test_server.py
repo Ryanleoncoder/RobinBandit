@@ -51,6 +51,16 @@ def _cliente(providers, router):
     return TestClient(create_app(providers, router))
 
 
+def test_modo_headless_mantem_api_e_desliga_interfaces():
+    c = TestClient(create_app([_Prov()], ProviderRouter(), include_interface=False))
+
+    assert c.get("/state").status_code == 200
+    assert c.get("/painel").status_code == 404
+    assert c.get("/docs").status_code == 404
+    assert c.get("/redoc").status_code == 404
+    assert c.get("/openapi.json").status_code == 404
+
+
 def test_resposta_no_formato_openai():
     c = _cliente([_Prov("bom dia")], ProviderRouter())
     r = c.post("/v1/chat/completions",

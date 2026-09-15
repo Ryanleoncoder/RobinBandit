@@ -9,4 +9,6 @@ secrets:
 
 providers:
   openrouter:
-    extra_headers: {HTTP-Referer: https://sentury-intelligence.onrender.com, X-Title: Sentury Intelligence}
+    # Sem HTTP-Referer ate existir um dominio publico atual. Este header e
+    # apenas identificacao no painel; nao autentica nem altera o roteamento.
+    extra_headers: {X-OpenRouter-Title: Sentury Intelligence}
