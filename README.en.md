@@ -293,7 +293,11 @@ response = await chain.complete(
 
 ### Per-request selection
 
-The Router supports three policies without confusing choice with fallback:
+The panel exposes four modes for the normal route: adaptive, tier priority,
+fixed list and round robin. Generic HTTP clients can also request a Reinforced
+route for one call.
+
+At the core, per-call selection stays simple:
 
 ```python
 from robinbandit import RouteSelection
@@ -304,14 +308,15 @@ RouteSelection.strict("groq:model-a")   # only the pinned one; fails with no fal
 ```
 
 In the Sentury profile, `router`, `reforçado` and `dedicado` are aliases for
-those three behaviors. In the universal API the canonical names are `router`,
+these behaviors. In the universal API the canonical names are `router`,
 `hybrid` and `strict`; `auto` is accepted only as a legacy alias for `router`.
 
 Generic HTTP clients can request the Reinforced queue configured in the panel
 with `X-RobinBandit-Mode: reinforced`. The queue accepts multiple ordered
 accounts and can mix subscriptions, credits, free accounts, and CLI sessions.
 If every preferred account fails, the Router continues through its normal
-chain. Dedicated remains intentionally owned by the Sentury interface.
+chain. Dedicated stays out of the universal panel because it belongs to the
+Sentury flow.
 
 ## YAML configuration
 
@@ -360,8 +365,9 @@ CSV/list pools, and never returns the value in status payloads. Use
 
 The catalog, the vault and the account choices belong to RobinBandit itself.
 Reinforced with no credential records the target's failure and carries on
-through the Router; Dedicated with no credential ends with no fallback. Changing
-a key rebuilds the Sentury adapters without requiring a restart.
+through the Router. In Sentury, Dedicated uses `strict` and ends with no
+fallback when the chosen account is unavailable. Changing a key rebuilds the
+Sentury adapters without requiring a restart.
 
 #### ChatGPT Codex (OAuth)
 
@@ -470,11 +476,9 @@ robinbandit serve          # brings up the endpoint
 # open http://localhost:8000/painel
 ```
 
-One page, served by the package itself. It shows the order right now and **why**
-it looks that way: quality, success rate, latency and the reason whoever is
-waiting is waiting. It computes nothing: everything comes from the router,
-because a panel that does its own math shows one thing while the router decides
-another.
+One page, served by the package itself. It shows the current order, who can
+answer, who is waiting, tokens, reported cost and the reason each provider moved
+in the queue.
 
 There are seven tabs. What each one solves:
 
@@ -482,12 +486,12 @@ There are seven tabs. What each one solves:
 
 ![Normal and Reinforced routes plus Adaptive, Tier priority, Fixed list and Round-robin modes](docs/imagens/painel-provedores.png)
 
-A tier is a group, and several providers fit in the same one. The panel offers
-four routing policies:
+A tier is a group, and several providers fit in the same one. The normal route
+offers four modes:
 
-* **Let it learn** (`strategy: adaptive`): the tier is a bonus. A tier 2
+* **Adaptive** (`strategy: adaptive`): the tier is a bonus. A tier 2
   provider that has been answering better goes ahead of tier 1.
-* **My tier rules** (`strategy: tier`): the tier is a barrier. Tier 2 is only
+* **Tier priority** (`strategy: tier`): the tier is a barrier. Tier 2 is only
   tried once all of tier 1 has failed: *"try these first even if they fail; only
   then spend my credits"*.
 * **Fixed list** (`strategy: fixed`) follows the editable chain order and moves
@@ -495,8 +499,9 @@ four routing policies:
 * **Round robin** (`strategy: round_robin`) rotates the first attempt after each
   real call. Opening the panel does not move the cursor.
 
-Dragging changes the group; the button removes a provider from the chain and
-puts it back.
+Reinforced is separate: one call can request a preferred account queue with
+`X-RobinBandit-Mode: reinforced`. If every preferred account fails, the request
+returns to the normal route.
 
 ### Models: each provider's list
 
