@@ -200,30 +200,60 @@ def test_conta_escolhida_muda_o_dedicado_em_runtime(tmp_path, monkeypatch):
         "OPENROUTER_PAID_KEY", "segredo-comprido-1234",
         permitidos=["OPENROUTER_PAID_KEY"],
     )
-    account_config.apontar_tier("ultra_max", "conta-paga", ids_validos=["conta-paga"])
+    account_config.definir_selecao_do_modo(
+        "dedicado",
+        [{"conta": "conta-paga", "modelos": ["modelo-dedicado"]}],
+        ids_validos=["conta-paga"],
+    )
 
     provider = build_tier_provider(config, "ultra_max", object())
     assert provider.name == "ultra_max"
-    assert provider.models == ["modelo-dedicado"]
+    assert provider.providers[0].models == ["modelo-dedicado"]
     assert "segredo-comprido" not in repr(provider)
 
 
-def test_conta_paga_compartilha_chave_mas_separa_modelo_por_tier(tmp_path, monkeypatch):
-    """Reforçado e Dedicado são modos da mesma conta OpenRouter, não duas
-    credenciais. Cada modo ainda precisa receber somente o seu modelo."""
+def test_modos_exigem_modelos_e_aceitam_varios_provedores(tmp_path, monkeypatch):
+    """Preço é só metadado; a seleção explícita manda em conta e modelos."""
+    from robinbandit.accounts import account_config
+
     monkeypatch.setenv("ROBINBANDIT_ACCOUNTS_PATH", str(tmp_path / "accounts.json"))
     monkeypatch.setenv("ROBINBANDIT_VAULT_PATH", str(tmp_path / "vault.json"))
     monkeypatch.setenv("API_KEY_ULTRA", "uma-chave-compartilhada")
-    monkeypatch.delenv("API_KEY_ULTRA_MAX", raising=False)
+    monkeypatch.setenv("GROQ_API_KEY", "outra-chave")
     config = RobinConfig.from_yaml(ROOT / "config" / "sentury.yaml")
     build_provider_set(config, object())
+
+    account_config.definir_selecao_do_modo(
+        "reforcado",
+        [
+            {"conta": "openrouter-paga", "modelos": ["modelo-or-a", "modelo-or-b"]},
+            {"conta": "groq", "modelos": ["modelo-groq"]},
+        ],
+        ids_validos=["openrouter-paga", "groq"],
+    )
+    account_config.definir_selecao_do_modo(
+        "dedicado",
+        [{"conta": "groq", "modelos": ["modelo-dedicado"]}],
+        ids_validos=["openrouter-paga", "groq"],
+    )
 
     reinforced = build_tier_provider(config, "ultra", object())
     dedicated = build_tier_provider(config, "ultra_max", object())
 
-    assert len(reinforced.providers) == 1
-    assert reinforced.providers[0].models == ["deepseek/deepseek-v4-flash"]
-    assert dedicated.models == ["deepseek/deepseek-v4-pro"]
+    assert [p.models for p in reinforced.providers] == [
+        ["modelo-or-a", "modelo-or-b"], ["modelo-groq"],
+    ]
+    assert [p.models for p in dedicated.providers] == [["modelo-dedicado"]]
+
+
+def test_modo_recusa_conta_sem_modelo(tmp_path, monkeypatch):
+    from robinbandit.accounts import account_config
+
+    monkeypatch.setenv("ROBINBANDIT_ACCOUNTS_PATH", str(tmp_path / "accounts.json"))
+    with pytest.raises(ValueError, match="ao menos um modelo"):
+        account_config.definir_selecao_do_modo(
+            "dedicado", [{"conta": "groq", "modelos": []}], ids_validos=["groq"],
+        )
 
 
 def test_dedicado_sem_credencial_nao_vira_router(monkeypatch, tmp_path):

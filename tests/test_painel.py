@@ -207,6 +207,12 @@ def test_reforcado_aceita_varias_contas_em_ordem(monkeypatch, tmp_path):
     cliente = _cliente()
     ordem = ["claude_code", "chatgpt_codex", "openrouter-paga"]
 
+    for provider in ("claude_code", "chatgpt_codex", "openrouter"):
+        cliente.put(
+            "/config/modelos",
+            json={"provedor": provider, "modelos": [f"modelo-{provider}"]},
+        )
+
     resposta = cliente.put("/contas/reforcado", json={"contas": ordem})
     assert resposta.status_code == 200
     assert resposta.json()["contas"] == ordem
@@ -219,6 +225,22 @@ def test_reforcado_recusa_conta_que_nao_existe(monkeypatch, tmp_path):
         "/contas/reforcado", json={"contas": ["conta-inventada"]},
     )
     assert resposta.status_code == 400
+
+
+def test_dedicado_aceita_varios_alvos_mas_fica_oculto_no_painel(monkeypatch, tmp_path):
+    monkeypatch.setenv("ROBINBANDIT_ACCOUNTS_PATH", str(tmp_path / "contas.json"))
+    cliente = _cliente()
+    alvos = [
+        {"conta": "groq", "modelos": ["modelo-a", "modelo-b"]},
+        {"conta": "openrouter-paga", "modelos": ["modelo-c"]},
+    ]
+
+    resposta = cliente.put("/contas/modos/dedicado", json={"alvos": alvos})
+
+    assert resposta.status_code == 200
+    contas = cliente.get("/contas").json()
+    assert contas["selecoes"]["dedicado"] == alvos
+    assert "ultra_max" not in contas["alvos"]
 
 
 def test_cadeia_e_tier_convivem():
@@ -306,8 +328,7 @@ def test_conta_nao_e_provedor():
 
 
 def test_a_chave_paga_virou_conta_do_openrouter():
-    """Os dois modelos dela sao modelos do OpenRouter, escolhiveis como os
-    outros; a chave e uma conta dele, marcada como paga."""
+    """A chave é uma conta marcada como paga, não uma escolha automática."""
     cliente = _cliente()
     modelos = [p for p in cliente.get("/config").json()["provedores"]
                if p["nome"] == "openrouter"][0]["modelos"]
@@ -316,9 +337,8 @@ def test_a_chave_paga_virou_conta_do_openrouter():
     contas = cliente.get("/contas").json()
     paga = [c for c in contas["contas"] if c["id"] == "openrouter-paga"]
     assert paga and paga[0]["provider"] == "openrouter" and paga[0]["paga"]
-    # Os modos pesados apontam para ela: sem isso cairiam na conta gratuita,
-    # que e o oposto do que "Dedicado" quer dizer.
-    assert contas["tiers"]["ultra_max"] == "openrouter-paga"
+    assert paga[0]["models"] == []
+    assert contas["selecoes"] == {"reforcado": [], "dedicado": []}
 
 
 def test_auth_por_cli_nao_pede_chave():
