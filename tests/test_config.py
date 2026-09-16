@@ -208,6 +208,24 @@ def test_conta_escolhida_muda_o_dedicado_em_runtime(tmp_path, monkeypatch):
     assert "segredo-comprido" not in repr(provider)
 
 
+def test_conta_paga_compartilha_chave_mas_separa_modelo_por_tier(tmp_path, monkeypatch):
+    """Reforçado e Dedicado são modos da mesma conta OpenRouter, não duas
+    credenciais. Cada modo ainda precisa receber somente o seu modelo."""
+    monkeypatch.setenv("ROBINBANDIT_ACCOUNTS_PATH", str(tmp_path / "accounts.json"))
+    monkeypatch.setenv("ROBINBANDIT_VAULT_PATH", str(tmp_path / "vault.json"))
+    monkeypatch.setenv("API_KEY_ULTRA", "uma-chave-compartilhada")
+    monkeypatch.delenv("API_KEY_ULTRA_MAX", raising=False)
+    config = RobinConfig.from_yaml(ROOT / "config" / "sentury.yaml")
+    build_provider_set(config, object())
+
+    reinforced = build_tier_provider(config, "ultra", object())
+    dedicated = build_tier_provider(config, "ultra_max", object())
+
+    assert len(reinforced.providers) == 1
+    assert reinforced.providers[0].models == ["deepseek/deepseek-v4-flash"]
+    assert dedicated.models == ["deepseek/deepseek-v4-pro"]
+
+
 def test_dedicado_sem_credencial_nao_vira_router(monkeypatch, tmp_path):
     monkeypatch.setenv("ROBINBANDIT_ACCOUNTS_PATH", str(tmp_path / "accounts.json"))
     monkeypatch.setenv("ROBINBANDIT_VAULT_PATH", str(tmp_path / "vault.json"))

@@ -373,9 +373,16 @@ def build_tier_provider(
             .get("modelo_do_tier", {})
             .get(tier_key, "")
         ).strip()
-        models = list(conta.models) or (
-            [do_tier] if do_tier else config.provider_models(source_key)
-        )
+        # Uma mesma conta pode servir mais de um tier com a mesma credencial.
+        # Quando o catálogo declara o modelo específico do tier, ele precisa
+        # vencer a lista agregada da conta; do contrário Reforçado e Dedicado
+        # receberiam os dois modelos e começariam sempre pelo primeiro.
+        if do_tier and do_tier in conta.models:
+            models = [do_tier]
+        else:
+            models = list(conta.models) or (
+                [do_tier] if do_tier else config.provider_models(source_key)
+            )
         runtime_name = conta.id if tier_key == "ultra" else tier_key
         provider = build_provider(
             config,
