@@ -100,6 +100,7 @@ class _Conta(BaseModel):
     variavel: str
     label: str = ""
     paga: bool = False
+    modelos: List[str] = Field(default_factory=list)
 
 
 class _TierDaConta(BaseModel):
@@ -109,6 +110,15 @@ class _TierDaConta(BaseModel):
 
 class _OrdemDoReforcado(BaseModel):
     contas: List[str]
+
+
+class _AlvoDoModo(BaseModel):
+    conta: str
+    modelos: List[str] = Field(default_factory=list)
+
+
+class _SelecaoDoModo(BaseModel):
+    alvos: List[_AlvoDoModo] = Field(default_factory=list)
 
 
 class _Credencial(BaseModel):
@@ -643,7 +653,10 @@ def create_app(
         from ..accounts import catalogo_efetivo
 
         if config is None:
-            return {"contas": [], "tiers": {}, "alvos": {}, "reforcado": []}
+            return {
+                "contas": [], "tiers": {}, "alvos": {}, "reforcado": [],
+                "selecoes": {"reforcado": [], "dedicado": []},
+            }
         painel = catalogo_efetivo(None, config).para_painel()
         rotulos = {
             chave: str(spec.get("label") or chave)
@@ -667,6 +680,10 @@ def create_app(
         if not ordem and painel.get("tiers", {}).get("ultra"):
             ordem = [painel["tiers"]["ultra"]]
         painel["reforcado"] = ordem
+        painel["selecoes"] = {
+            modo: account_config.selecao_do_modo(modo)
+            for modo in ("reforcado", "dedicado")
+        }
         return painel
 
     @app.post("/contas")
@@ -677,7 +694,7 @@ def create_app(
         try:
             return account_config.salvar_conta({
                 "id": req.id, "provider": req.provedor, "key_env": req.variavel,
-                "label": req.label, "paga": req.paga,
+                "label": req.label, "paga": req.paga, "models": req.modelos,
             })
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -706,7 +723,46 @@ def create_app(
 
     @app.put("/contas/reforcado")
     async def ordenar_reforcado(req: _OrdemDoReforcado) -> Dict[str, Any]:
-        """Escolhe as contas tentadas, em ordem, antes da rota normal."""
+        """Compatibilidade do painel universal.
+
+        As contas são ordenadas aqui, mas os modelos precisam ter sido
+        escolhidos antes na tela de Modelos. Nada é inferido por fábrica.
+        """
+        from ..accounts import account_config
+        from ..accounts import catalogo_efetivo
+
+        if config is None:
+            raise HTTPException(status_code=400, detail="sem catálogo carregado")
+        catalogo = catalogo_efetivo(None, config)
+        validos = [c.id for c in catalogo.listar()]
+        try:
+            ordem = account_config.definir_ordem_do_reforcado(
+                req.contas, ids_validos=validos,
+            )
+            escolhidos = account_config.overrides_de_modelos()
+            alvos = []
+            for conta_id in ordem:
+                conta = catalogo.obter(conta_id)
+                modelos = list(escolhidos.get(conta.provider, [])) if conta else []
+                if not modelos and conta is not None:
+                    modelos = list(conta.models)
+                alvos.append({"conta": conta_id, "modelos": modelos})
+            account_config.definir_selecao_do_modo(
+                "reforcado", alvos, ids_validos=validos,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {"contas": ordem}
+
+    @app.put("/contas/modos/{modo}")
+    async def selecionar_modo(
+        modo: str, req: _SelecaoDoModo,
+    ) -> Dict[str, Any]:
+        """Escolhe contas/provedores e modelos de Reforçado ou Dedicado.
+
+        Dedicado é consumido pelo Sentury e não aparece como modo no painel
+        universal do RobinBandit.
+        """
         from ..accounts import account_config
         from ..accounts import catalogo_efetivo
 
@@ -714,12 +770,14 @@ def create_app(
             raise HTTPException(status_code=400, detail="sem catálogo carregado")
         validos = [c.id for c in catalogo_efetivo(None, config).listar()]
         try:
-            ordem = account_config.definir_ordem_do_reforcado(
-                req.contas, ids_validos=validos,
+            alvos = account_config.definir_selecao_do_modo(
+                modo,
+                [alvo.model_dump() for alvo in req.alvos],
+                ids_validos=validos,
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
-        return {"contas": ordem}
+        return {"modo": modo, "alvos": alvos}
 
     @app.get("/credenciais")
     async def credenciais() -> Dict[str, Any]:

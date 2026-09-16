@@ -13,7 +13,7 @@ _LOCK = threading.RLock()
 _PATH_ENV = "ROBINBANDIT_ACCOUNTS_PATH"
 _PREFERENCES_PATH_ENV = "ROBINBANDIT_PREFERENCES_PATH"
 
-_CAMPOS_DE_CONTA = ("contas", "tiers", "reforcado")
+_CAMPOS_DE_CONTA = ("contas", "tiers", "reforcado", "selecoes")
 _CAMPOS_DE_PREFERENCIA = (
     "provedores", "modelos", "modelos_por_papel", "estrategia", "cadeia", "idioma",
 )
@@ -85,7 +85,8 @@ def _gravar_json(caminho: Path, dados: Dict[str, Any]) -> None:
 
 def carregar() -> Dict[str, Any]:
     vazio = {
-        "contas": [], "tiers": {}, "reforcado": [], "provedores": {}, "modelos": {},
+        "contas": [], "tiers": {}, "reforcado": [], "selecoes": {},
+        "provedores": {}, "modelos": {},
         "modelos_por_papel": {},
         "estrategia": "", "cadeia": [],
         "idioma": "",
@@ -114,6 +115,7 @@ def carregar() -> Dict[str, Any]:
             preferencias.update(legadas)
 
     dados = {**contas, **preferencias}
+    selecoes = dados.get("selecoes") or {}
     return {
         "contas": [c for c in (dados.get("contas") or []) if isinstance(c, dict)],
         "tiers": {str(k): str(v) for k, v in (dados.get("tiers") or {}).items()},
@@ -123,6 +125,21 @@ def carregar() -> Dict[str, Any]:
             for conta in (dados.get("reforcado") or [])
             if str(conta).strip()
         ],
+        "selecoes": {
+            modo: [
+                {
+                    "conta": str(alvo.get("conta") or "").strip(),
+                    "modelos": [
+                        str(modelo).strip()
+                        for modelo in (alvo.get("modelos") or [])
+                        if str(modelo).strip()
+                    ],
+                }
+                for alvo in (selecoes.get(modo) or [])
+                if isinstance(alvo, dict) and str(alvo.get("conta") or "").strip()
+            ]
+            for modo in ("reforcado", "dedicado")
+        },
         # provedor -> tier de roteamento (1 preferencial ... 3 ultimo recurso).
         "provedores": {str(k): v for k, v in (dados.get("provedores") or {}).items()},
         # provedor -> modelos escolhidos no catalogo vivo.
@@ -198,6 +215,11 @@ def remover_conta(conta_id: str) -> bool:
         # Remove referências órfãs.
         dados["tiers"] = {t: v for t, v in dados["tiers"].items() if v != cid}
         dados["reforcado"] = [conta for conta in dados["reforcado"] if conta != cid]
+        for modo in ("reforcado", "dedicado"):
+            dados["selecoes"][modo] = [
+                alvo for alvo in dados["selecoes"].get(modo, [])
+                if alvo.get("conta") != cid
+            ]
         if len(dados["contas"]) == antes:
             return False
         _gravar(dados)
@@ -247,6 +269,75 @@ def definir_ordem_do_reforcado(
         dados["reforcado"] = ordem
         _gravar(dados)
     return ordem
+
+
+def _nome_do_modo(modo: str) -> str:
+    normalizado = str(modo or "").strip().lower()
+    aliases = {
+        "ultra": "reforcado",
+        "reinforced": "reforcado",
+        "reforçado": "reforcado",
+        "ultra_max": "dedicado",
+        "dedicated": "dedicado",
+    }
+    normalizado = aliases.get(normalizado, normalizado)
+    if normalizado not in ("reforcado", "dedicado"):
+        raise ValueError("modo deve ser reforcado ou dedicado")
+    return normalizado
+
+
+def selecao_do_modo(modo: str) -> List[Dict[str, Any]]:
+    """Alvos explicitamente escolhidos para o modo, em ordem de tentativa."""
+    nome = _nome_do_modo(modo)
+    return [dict(alvo) for alvo in carregar()["selecoes"].get(nome, [])]
+
+
+def definir_selecao_do_modo(
+    modo: str,
+    alvos: List[Dict[str, Any]],
+    ids_validos: Optional[List[str]] = None,
+) -> List[Dict[str, Any]]:
+    """Persiste contas/provedores e modelos escolhidos para um modo.
+
+    A conta informa a credencial. Os modelos pertencem a esta seleção e nunca
+    são inferidos pelo preço da conta ou por um modelo de fábrica.
+    """
+    nome = _nome_do_modo(modo)
+    normalizados: List[Dict[str, Any]] = []
+    por_conta: Dict[str, Dict[str, Any]] = {}
+    for bruto in alvos or []:
+        if not isinstance(bruto, dict):
+            raise ValueError("cada alvo deve informar conta e modelos")
+        conta = str(bruto.get("conta") or "").strip()
+        modelos: List[str] = []
+        for modelo in bruto.get("modelos") or []:
+            item = str(modelo or "").strip()
+            if item and item not in modelos:
+                modelos.append(item)
+        if not conta:
+            raise ValueError("alvo sem conta")
+        if ids_validos is not None and conta not in ids_validos:
+            raise ValueError(
+                f"conta '{conta}' não existe. "
+                f"Disponíveis: {', '.join(sorted(ids_validos))}."
+            )
+        if not modelos:
+            raise ValueError(
+                f"escolha ao menos um modelo para a conta '{conta}'"
+            )
+        if conta in por_conta:
+            for modelo in modelos:
+                if modelo not in por_conta[conta]["modelos"]:
+                    por_conta[conta]["modelos"].append(modelo)
+            continue
+        alvo = {"conta": conta, "modelos": modelos}
+        por_conta[conta] = alvo
+        normalizados.append(alvo)
+    with _LOCK:
+        dados = carregar()
+        dados["selecoes"][nome] = normalizados
+        _gravar(dados)
+    return [dict(alvo) for alvo in normalizados]
 
 
 # Cache por mtime evita I/O no caminho quente e reflete mudanças do painel.

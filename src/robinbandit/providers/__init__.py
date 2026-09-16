@@ -337,53 +337,29 @@ def build_tier_provider(
         raise ValueError("tier deve ser ultra (Reforçado) ou ultra_max (Dedicado)")
 
     catalogo = catalogo_efetivo(settings, config)
-    contas = []
-    if tier_key == "ultra":
-        # O painel pode montar uma fila de qualquer tamanho e misturar contas
-        # pagas, gratuitas ou autenticadas por CLI. Sem escolha explícita,
-        # preserva o único alvo legado declarado em `tiers.ultra`.
-        contas = [
-            conta for conta_id in account_config.ordem_do_reforcado()
-            if (conta := catalogo.obter(conta_id)) is not None
-        ]
-    if not contas:
-        conta_legada = catalogo.conta_do_tier(tier_key)
-        contas = [conta_legada] if conta_legada is not None else []
-
-    if not contas:
-        # `ultra_max` não é mais um provedor: quem serve os dois tiers é a
-        # conta paga declarada com `selection_tier`.
-        alvo = tier_key if tier_key in config.providers else _dono_do_tier(config, tier_key)
-        provider = build_provider(config, alvo, settings) if alvo else None
-        return provider or UnavailableProvider(
-            tier_key, f"{tier_key} não possui conta/credencial configurada"
+    modo = "reforcado" if tier_key == "ultra" else "dedicado"
+    alvos = account_config.selecao_do_modo(modo)
+    if not alvos:
+        return UnavailableProvider(
+            tier_key,
+            f"{modo} não configurado: escolha provedor/conta e ao menos um modelo",
         )
 
     montados = []
-    for conta in contas:
+    for alvo in alvos:
+        conta = catalogo.obter(alvo["conta"])
+        if conta is None:
+            montados.append(UnavailableProvider(
+                str(alvo["conta"]), f"conta '{alvo['conta']}' não existe",
+            ))
+            continue
         source_key = tier_key if conta.id == tier_key else conta.provider
         if source_key not in config.providers:
             raise ValueError(
                 f"conta '{conta.id}' usa provedor '{source_key}' ausente no YAML Robin"
             )
-        # A conta vem primeiro: quem escolheu os modelos dela tomou a decisão
-        # mais recente. O modelo do tier é apenas o padrão legado.
-        do_tier = str(
-            (config.providers.get(source_key) or {})
-            .get("modelo_do_tier", {})
-            .get(tier_key, "")
-        ).strip()
-        # Uma mesma conta pode servir mais de um tier com a mesma credencial.
-        # Quando o catálogo declara o modelo específico do tier, ele precisa
-        # vencer a lista agregada da conta; do contrário Reforçado e Dedicado
-        # receberiam os dois modelos e começariam sempre pelo primeiro.
-        if do_tier and do_tier in conta.models:
-            models = [do_tier]
-        else:
-            models = list(conta.models) or (
-                [do_tier] if do_tier else config.provider_models(source_key)
-            )
-        runtime_name = conta.id if tier_key == "ultra" else tier_key
+        models = list(alvo.get("modelos") or [])
+        runtime_name = conta.id
         provider = build_provider(
             config,
             source_key,
@@ -397,9 +373,10 @@ def build_tier_provider(
             f"conta '{conta.id}' não possui credencial ou modelos válidos",
         ))
 
-    if tier_key == "ultra":
-        return ReinforcedProvider(montados, name="ultra")
-    return montados[0]
+    # O grupo apenas tenta os alvos escolhidos, em ordem. Quem decide se uma
+    # falha volta ao Router é a seleção externa: Reforçado é híbrido;
+    # Dedicado é estrito e portanto termina depois deste grupo.
+    return ReinforcedProvider(montados, name=tier_key)
 
 
 def describe_from_config(config: RobinConfig, settings: Any = None) -> List[Dict[str, Any]]:

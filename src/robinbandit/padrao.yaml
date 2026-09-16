@@ -39,12 +39,10 @@ accounts:
       key_env: API_KEY_ULTRA
       label: OpenRouter (crédito pago)
       paga: true
-      models: [deepseek/deepseek-v4-flash, deepseek/deepseek-v4-pro]
-  # Quem serve cada modo pesado. Sem isto os dois cairiam na conta gratuita, que
-  # e exatamente o oposto do que "Dedicado" quer dizer.
-  tiers:
-    ultra: openrouter-paga
-    ultra_max: openrouter-paga
+      # A conta descreve a credencial, não uma escolha de modelo. Reforçado e
+      # Dedicado só ficam ativos depois que o usuário escolhe provedor/conta e
+      # ao menos um modelo para o modo.
+      models: []
 
 routing:
   strategy: adaptive
@@ -190,12 +188,8 @@ providers:
     # tres OpenRouters, e apareciam na tela de Modelos como se tivessem
     # catalogo proprio.
     #
-    # Agora sao o que sempre foram: uma conta paga deste provedor (declarada em
-    # `accounts`, abaixo) e dois modelos dele. Reforcado e Dedicado escolhem
-    # qual dos dois usar.
-    modelo_do_tier:
-      ultra: deepseek/deepseek-v4-flash
-      ultra_max: deepseek/deepseek-v4-pro
+    # A conta paga do OpenRouter é apenas uma credencial disponível. Nenhum
+    # destes modelos é reservado automaticamente para um modo.
     tier: 2
     quality: 0.70
     priority: 5
