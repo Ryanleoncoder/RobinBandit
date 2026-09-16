@@ -4,6 +4,8 @@ let ferramentas = [];
 let estado = { provedores: [], ordem: [], atividade: [] };
 let periodoUso = 30;
 
+const L = (pt, en) => IDIOMA === 'en' ? en : pt;
+
 function logo(nome) {
   const sigla = (nome || '?').slice(0, 2).toUpperCase();
   return '<img class="logo" src="logos/' + nome + '.svg" alt="" ' +
@@ -12,13 +14,13 @@ function logo(nome) {
 
 function selo(p) {
   // Derivado dos contadores persistidos, não do status inicial do processo.
-  if (p.cooldown) return ['mau', 'em espera'];
+  if (p.cooldown) return ['mau', L('em espera', 'waiting')];
   const ok = p.ok || 0, err = p.err || 0, total = ok + err;
-  if (!total) return ['', 'sem uso'];
+  if (!total) return ['', L('sem uso', 'idle')];
   const taxa = ok / total;
-  if (taxa >= 0.95) return ['bom', 'saudável'];
-  if (taxa >= 0.7) return ['atencao', 'instável'];
-  return ['mau', 'falhando'];
+  if (taxa >= 0.95) return ['bom', L('saudável', 'healthy')];
+  if (taxa >= 0.7) return ['atencao', L('instável', 'shaky')];
+  return ['mau', L('falhando', 'failing')];
 }
 
 function medidor(valor, estimado) {
@@ -28,9 +30,9 @@ function medidor(valor, estimado) {
   return '<span class="medidor"><span class="trilho">' +
     '<span class="cheio' + faixa + '" style="width:' + Math.round(n * 100) + '%"></span></span>' +
     '<span class="valor' + (estimado ? ' palpite' : '') + '" title="' +
-    (estimado ? 'palpite de fábrica: este provedor ainda não foi usado' : 'medido aqui') +
+    (estimado ? L('palpite de fábrica: este provedor ainda não foi usado', 'factory guess: this provider has not been used yet') : L('medido aqui', 'measured here')) +
     '">' + (n ? n.toFixed(2) : '—') + '</span>' +
-    (estimado && n ? '<span class="palpite-nota">palpite</span>' : '') + '</span>';
+    (estimado && n ? '<span class="palpite-nota">' + L('palpite', 'guess') + '</span>' : '') + '</span>';
 }
 
 /* — Primeiros passos — */
@@ -119,37 +121,37 @@ function desenharAgora() {
   const ultima = atividade[0];
   $('placar').innerHTML =
     '<div><b class="verde">' + (primeiro ? primeiro.nome : '—') + '</b>' +
-    '<span>primeiro da fila</span>' +
+    '<span>' + L('primeiro da fila', 'first in queue') + '</span>' +
     '<small>' + T('prov.modo.' + (estado.estrategia || 'adaptive')) +
     (primeiro && primeiro.motivo ? ': ' + primeiro.motivo : '') + '</small></div>' +
-    '<div><b>' + chamadas + '</b><span>chamadas</span>' +
-    '<small>desde que o servidor subiu</small></div>' +
+    '<div><b>' + chamadas + '</b><span>' + L('chamadas', 'calls') + '</span>' +
+    '<small>' + L('desde que o servidor subiu', 'since the server started') + '</small></div>' +
     '<div><b' + (emEspera ? ' class="ambar"' : '') + '>' + dePe + ' de ' + total + '</b>' +
-    '<span>de pé</span><small>' +
-    (emEspera ? emEspera + ' em espera depois de falhar' : 'ninguém em espera') + '</small></div>' +
+    '<span>' + L('de pé', 'available') + '</span><small>' +
+    (emEspera ? emEspera + L(' em espera depois de falhar', ' waiting after failure') : L('ninguém em espera', 'nobody waiting')) + '</small></div>' +
     '<div><b' + (abertas.length ? ' class="ambar"' : '') + '>' + abertas.length + '</b>' +
-    '<span>em andamento</span><small>' + (ultima
-      ? (ultima.status === 'em_andamento' ? 'roteando agora' : 'atividade ' + haQuanto(ultima.ha_segundos))
-      : 'nenhuma desde que subiu') + '</small></div>';
+    '<span>' + L('em andamento', 'running') + '</span><small>' + (ultima
+      ? (ultima.status === 'em_andamento' ? L('roteando agora', 'routing now') : L('atividade ', 'activity ') + haQuanto(ultima.ha_segundos))
+      : L('nenhuma desde que subiu', 'none since startup')) + '</small></div>';
 
   desenharAtividade(atividade);
 
   // Uma tabela combina ordem e saúde.
   $('ordem').innerHTML = linhas.length
-    ? '<table><thead><tr><th></th><th>Provedor</th><th>Estado</th><th>Qualidade</th>' +
-      '<th>OK / erro</th><th>Latência</th><th>Cota</th><th>Por quê</th></tr></thead><tbody>' +
+    ? '<table><thead><tr><th></th><th>' + L('Provedor', 'Provider') + '</th><th>' + L('Estado', 'State') + '</th><th>' + L('Qualidade', 'Quality') + '</th>' +
+      '<th>OK / ' + L('erro', 'error') + '</th><th>' + L('Latência', 'Latency') + '</th><th>' + L('Cota', 'Quota') + '</th><th>' + L('Por quê', 'Why') + '</th></tr></thead><tbody>' +
       linhas.map((l, i) => {
         const s = saude[l.nome] || {};
         const par = selo(s);
         const espera = s.cooldown ? ' <span class="num" style="color:var(--ambar)">' + s.cooldown + 's</span>' : '';
         const recente = s.em_andamento
-          ? '<span class="agora">respondendo agora</span>'
+          ? '<span class="agora">' + L('respondendo agora', 'answering now') + '</span>'
           : s.ultimo_modelo
             ? s.ultimo_modelo + (s.ha_segundos != null ? ' · ' + haQuanto(s.ha_segundos) : '')
             : l.motivo;
         const cota = s.rpm_restante != null
           ? s.rpm_restante + ' rpm'
-          : s.rpd_restante != null ? s.rpd_restante + ' dia' : '—';
+          : s.rpd_restante != null ? s.rpd_restante + ' ' + L('dia', 'day') : '—';
         return '<tr><td class="posicao">' + (i + 1) + '</td>' +
           '<td><span class="comlogo">' + logo(l.nome) + l.nome + '</span></td>' +
           '<td><span class="selo ' + par[0] + '">' + par[1] + '</span>' + espera + '</td>' +
@@ -159,7 +161,7 @@ function desenharAgora() {
           '<td class="num cota">' + cota + '</td>' +
           '<td class="porque">' + recente + '</td></tr>';
       }).join('') + '</tbody></table>'
-    : '<p class="vazio" style="padding:22px">Nenhuma chamada ainda. A fila aparece depois do primeiro turno.</p>';
+    : '<p class="vazio" style="padding:22px">' + L('Nenhuma chamada ainda. A fila aparece depois do primeiro turno.', 'No calls yet. The queue appears after the first turn.') + '</p>';
 }
 
 /* — Provedores por tier — */
@@ -181,7 +183,7 @@ function desenharEstrategia() {
         desenharEstrategia();
         desenharOrdemCadeia();
         desenharTiers();
-        recado('recado-prov', 'Vale a partir da próxima chamada.');
+        recado('recado-prov', L('Vale a partir da próxima chamada.', 'Applies from the next call.'));
       } catch (e) { recado('recado-prov', e.message); }
     }));
 }
@@ -195,8 +197,8 @@ function usoCurto(uso) {
 }
 
 function nomeModoChamada(modo) {
-  if (modo === 'hybrid') return 'Reforçado';
-  if (modo === 'strict') return 'Dedicado';
+  if (modo === 'hybrid') return L('Reforçado', 'Reinforced');
+  if (modo === 'strict') return L('Dedicado', 'Dedicated');
   return 'Normal';
 }
 
@@ -205,28 +207,28 @@ function desenharAtividade(itens) {
   const fluxo = $('fluxo');
   const atual = itens.find(a => a.status === 'em_andamento') || itens[0];
   if (!atual) {
-    fluxo.innerHTML = '<div class="fluxo-vazio">A fila está pronta. A próxima tentativa aparece aqui enquanto acontece.</div>';
-    onde.innerHTML = '<p class="vazio">Nenhuma tentativa desde que o servidor subiu.</p>';
+    fluxo.innerHTML = '<div class="fluxo-vazio">' + L('A fila está pronta. A próxima tentativa aparece aqui enquanto acontece.', 'The queue is ready. The next attempt appears here while it runs.') + '</div>';
+    onde.innerHTML = '<p class="vazio">' + L('Nenhuma tentativa desde que o servidor subiu.', 'No attempt since the server started.') + '</p>';
     return;
   }
 
   const viva = atual.status === 'em_andamento';
-  const contexto = atual.contexto ? '<code>' + atual.contexto + '</code>' : 'contexto padrão';
+  const contexto = atual.contexto ? '<code>' + atual.contexto + '</code>' : L('contexto padrão', 'default context');
   const modo = nomeModoChamada(atual.modo);
   fluxo.innerHTML = '<div class="fluxo-cabeca"><span class="ao-vivo' + (viva ? ' ligado' : '') + '">' +
-    (viva ? 'ao vivo' : 'mais recente') + '</span><span>' + modo + ' · ' + contexto + '</span></div>' +
+    (viva ? L('ao vivo', 'live') : L('mais recente', 'latest')) + '</span><span>' + modo + ' · ' + contexto + '</span></div>' +
     '<div class="rota-viva"><b>RobinBandit</b><span class="fio' + (viva ? ' correndo' : '') + '"><i></i></span>' +
     '<span class="destino">' + logo(atual.provedor) + '<b>' + atual.provedor + '</b></span></div>' +
-    '<p>' + (viva ? 'Aguardando resposta' : atual.status === 'sucesso' ? 'Resposta concluída' : 'Tentativa encerrada') +
-    (atual.modelo ? ' com <code>' + atual.modelo + '</code>' : '') + '.</p>';
+    '<p>' + (viva ? L('Aguardando resposta', 'Waiting for response') : atual.status === 'sucesso' ? L('Resposta concluída', 'Response completed') : L('Tentativa encerrada', 'Attempt closed')) +
+    (atual.modelo ? ' ' + L('com', 'with') + ' <code>' + atual.modelo + '</code>' : '') + '.</p>';
 
   onde.innerHTML = itens.slice(0, 4).map(a => {
     const classe = a.status === 'sucesso' ? 'ok' : a.status === 'falha' ? 'erro' : 'rodando';
-    const duracao = a.duracao_ms != null ? a.duracao_ms + ' ms' : 'agora';
+    const duracao = a.duracao_ms != null ? a.duracao_ms + ' ms' : L('agora', 'now');
     const detalhe = [a.modelo || a.contexto, usoCurto(a.uso), a.motivo].filter(Boolean).join(' · ');
     return '<div class="atividade-linha"><span class="atividade-estado ' + classe + '"></span>' +
       logo(a.provedor) + '<span class="atividade-quem"><b>' + a.provedor + '</b><small>' +
-      (detalhe || 'tentativa em andamento') + '</small></span>' +
+      (detalhe || L('tentativa em andamento', 'attempt running')) + '</small></span>' +
       '<span class="atividade-tempo"><b>' + duracao + '</b><small>' + haQuanto(a.ha_segundos) + '</small></span></div>';
   }).join('');
 }
@@ -244,8 +246,8 @@ function desenharOrdemCadeia() {
       const p = catalogo.get(nome);
       return '<li>' + logo(nome) + '<span>' + (p.label || nome) + '</span>' +
         '<code>' + nome + '</code><span class="mover">' +
-        '<button type="button" data-move="-1" data-indice="' + i + '" aria-label="Subir ' + nome + '"' + (i === 0 ? ' disabled' : '') + '>↑</button>' +
-        '<button type="button" data-move="1" data-indice="' + i + '" aria-label="Descer ' + nome + '"' + (i === nomes.length - 1 ? ' disabled' : '') + '>↓</button>' +
+        '<button type="button" data-move="-1" data-indice="' + i + '" aria-label="' + L('Subir ', 'Move up ') + nome + '"' + (i === 0 ? ' disabled' : '') + '>↑</button>' +
+        '<button type="button" data-move="1" data-indice="' + i + '" aria-label="' + L('Descer ', 'Move down ') + nome + '"' + (i === nomes.length - 1 ? ' disabled' : '') + '>↓</button>' +
         '</span></li>';
     }).join('') + '</ol>';
   onde.querySelectorAll('[data-move]').forEach(botao => botao.addEventListener('click', async () => {
@@ -257,7 +259,7 @@ function desenharOrdemCadeia() {
       await salvar('config/cadeia', { nomes: nova });
       config.cadeia = nova;
       desenharOrdemCadeia();
-      recado('recado-prov', 'Nova ordem aplicada.');
+      recado('recado-prov', L('Nova ordem aplicada.', 'New order applied.'));
     } catch (e) { recado('recado-prov', e.message); }
   }));
 }
@@ -299,9 +301,9 @@ function desenharTiers() {
       return '<div><div class="prov' + (p.na_cadeia ? '' : ' fora') + '" draggable="true" data-prov="' + p.nome + '">' +
         logo(p.nome) + '<span class="quem" title="' + p.label + '">' + p.nome + '</span>' +
         '<button type="button" class="liga" data-liga="' + p.nome + '" data-ligado="' + p.na_cadeia + '">' +
-        (p.na_cadeia ? 'na cadeia' : 'fora') + '</button></div></div>';
+        (p.na_cadeia ? L('na cadeia', 'in chain') : L('fora', 'out')) + '</button></div></div>';
     }).join('')
-      : '<p class="vazio">vazio</p>') +
+      : '<p class="vazio">' + L('vazio', 'empty') + '</p>') +
     '</div></div>').join('') : '<p class="vazio">' + T('prov.vazio') + '</p>';
 
   document.querySelectorAll('.prov').forEach(el => {
@@ -323,7 +325,7 @@ function desenharTiers() {
       try {
         await salvar('config/tier', { provedor: quem, tier: Number(faixa.dataset.tier) });
         await carregarConfig();
-        recado('recado-prov', quem + ' foi para o tier ' + faixa.dataset.tier + '.');
+        recado('recado-prov', quem + L(' foi para o tier ', ' moved to tier ') + faixa.dataset.tier + '.');
       } catch (e) { recado('recado-prov', e.message); }
     });
   });
@@ -336,7 +338,7 @@ function desenharTiers() {
     try {
       await salvar('config/cadeia', { nomes: nova });
       await carregarConfig();
-      recado('recado-prov', quem + (dentro ? ' saiu da cadeia.' : ' entrou na cadeia.'));
+      recado('recado-prov', quem + (dentro ? L(' saiu da cadeia.', ' left the chain.') : L(' entrou na cadeia.', ' joined the chain.')));
     } catch (e) { recado('recado-prov', e.message); }
   }));
 }
@@ -347,8 +349,8 @@ let modelosDeTodos = false;
 function desenharModelos() {
   // Por padrão, mostra só quem está roteando.
   $('filtro-modelos').innerHTML =
-    '<button class="aba" type="button" data-todos="false" aria-pressed="' + !modelosDeTodos + '">Na cadeia</button>' +
-    '<button class="aba" type="button" data-todos="true" aria-pressed="' + modelosDeTodos + '">Todos do catálogo</button>';
+    '<button class="aba" type="button" data-todos="false" aria-pressed="' + !modelosDeTodos + '">' + L('Na cadeia', 'In chain') + '</button>' +
+    '<button class="aba" type="button" data-todos="true" aria-pressed="' + modelosDeTodos + '">' + L('Todos do catálogo', 'Full catalog') + '</button>';
   document.querySelectorAll('[data-todos]').forEach(b => b.addEventListener('click', () => {
     modelosDeTodos = b.dataset.todos === 'true';
     desenharModelos();
@@ -368,21 +370,21 @@ function desenharModelos() {
       '<button type="button" data-desce="' + p.nome + '|' + i + '"' + (i === modelos.length - 1 ? ' disabled' : '') + '>&darr;</button>' +
       '<button type="button" class="tirar" data-tira="' + p.nome + '|' + i + '" title="tirar da lista">&times;</button>' +
       '</span></div>').join('')
-      : '<p class="vazio">Sem lista própria: o provedor usa o modelo padrão dele.</p>';
+      : '<p class="vazio">' + L('Sem lista própria: o provedor usa o modelo padrão dele.', 'No custom list: the provider uses its default model.') + '</p>';
     return '<div class="provlinha"><div class="topo">' + logo(p.nome) +
       '<span class="quem">' + (p.label || p.nome) + '</span>' +
-      '<span class="obs">' + (p.modelos_proprios ? 'ordem sua' : 'ordem de fábrica') +
-      '<button type="button" class="descobrir" data-descobre="' + p.nome + '">ver o que ele tem</button></span></div>' +
+      '<span class="obs">' + (p.modelos_proprios ? L('ordem sua', 'your order') : L('ordem de fábrica', 'factory order')) +
+      '<button type="button" class="descobrir" data-descobre="' + p.nome + '">' + L('ver o que ele tem', 'see what it has') + '</button></span></div>' +
       '<div class="modelos">' + linhas + '</div>' +
       '<div class="achados" id="achados-' + p.nome + '"></div>' +
       '<form class="somar" data-prov="' + p.nome + '">' +
-      '<input placeholder="id do modelo, como ele aparece na API" autocomplete="off" spellcheck="false">' +
-      '<button type="submit" class="acao">adicionar</button></form>' +
+      '<input placeholder="' + L('id do modelo, como ele aparece na API', 'model id, as it appears in the API') + '" autocomplete="off" spellcheck="false">' +
+      '<button type="submit" class="acao">' + L('adicionar', 'add') + '</button></form>' +
       '</div>';
   }).join('')
     : '<p class="vazio">' + (modelosDeTodos
-        ? 'Nenhum provedor no catálogo.'
-        : 'Nenhum provedor na cadeia. Veja o catálogo inteiro acima.') + '</p>';
+        ? L('Nenhum provedor no catálogo.', 'No provider in the catalog.')
+        : L('Nenhum provedor na cadeia. Veja o catálogo inteiro acima.', 'No provider in the chain. See the full catalog above.')) + '</p>';
 
   const listaDe = nome => ((config.provedores || []).filter(p => p.nome === nome)[0] || {}).modelos || [];
 
@@ -414,7 +416,7 @@ function desenharModelos() {
       const id = campo.value.trim();
       if (!id) return;
       const atual = listaDe(f.dataset.prov);
-      if (atual.indexOf(id) >= 0) { recado('recado-mod', id + ' já está na lista.'); return; }
+      if (atual.indexOf(id) >= 0) { recado('recado-mod', id + L(' já está na lista.', ' is already in the list.')); return; }
       campo.value = '';
       trocarModelos(f.dataset.prov, atual.concat([id]));
     }));
@@ -423,7 +425,7 @@ function desenharModelos() {
     b.addEventListener('click', async () => {
       const quem = b.dataset.descobre;
       const caixa = $('achados-' + quem);
-      b.textContent = 'perguntando…';
+      b.textContent = L('perguntando…', 'asking…');
       try {
         const r = await (await fetch('modelos/' + quem)).json();
         const achados = (r.models || r.modelos || []).map(m => m.id || m.nome || m);
@@ -432,22 +434,22 @@ function desenharModelos() {
         // Escolhe sem substituir a ordem já configurada.
         caixa.innerHTML = novos.length
           ? '<p class="dica">' + quem + ' diz ter ' + achados.length +
-            ' modelos. Clique para acrescentar:</p>' +
+            L(' modelos. Clique para acrescentar:', ' models. Click to add:') + '</p>' +
             novos.map(m => '<button type="button" class="achado" data-somar="' +
               quem + '|' + m + '">+ ' + m + '</button>').join('')
           : '<p class="dica">' + (achados.length
-              ? 'Todos os ' + achados.length + ' já estão na sua lista.'
-              : quem + ' não devolveu modelo nenhum.') + '</p>';
+              ? L('Todos os ', 'All ') + achados.length + L(' já estão na sua lista.', ' are already in your list.')
+              : quem + L(' não devolveu modelo nenhum.', ' did not return any model.')) + '</p>';
         caixa.querySelectorAll('[data-somar]').forEach(a =>
           a.addEventListener('click', () => {
             const partes = a.dataset.somar.split('|');
             trocarModelos(partes[0], listaDe(partes[0]).concat([partes[1]]));
           }));
       } catch (e) {
-        caixa.innerHTML = '<p class="dica">não consegui perguntar ao ' + quem +
-          '. Normalmente é chave faltando na tela de Credenciais.</p>';
+        caixa.innerHTML = '<p class="dica">' + L('não consegui perguntar ao ', 'could not ask ') + quem +
+          L('. Normalmente é chave faltando na tela de Credenciais.', '. Usually a key is missing in Credentials.') + '</p>';
       }
-      b.textContent = 'ver o que ele tem';
+      b.textContent = L('ver o que ele tem', 'see what it has');
     }));
 }
 
@@ -455,15 +457,15 @@ async function trocarModelos(provedor, modelos) {
   try {
     await salvar('config/modelos', { provedor: provedor, modelos: modelos });
     await carregarConfig();
-    recado('recado-mod', provedor + ': tenta ' + modelos[0] + ' primeiro.');
+    recado('recado-mod', provedor + L(': tenta ', ': tries ') + modelos[0] + L(' primeiro.', ' first.'));
   } catch (e) { recado('recado-mod', e.message); }
 }
 
 /* — Conectar — */
 function haQuanto(s) {
-  if (s < 60) return 'agora';
-  if (s < 3600) return 'há ' + Math.round(s / 60) + ' min';
-  return 'há ' + Math.round(s / 3600) + 'h';
+  if (s < 60) return L('agora', 'now');
+  if (s < 3600) return L('há ', '') + Math.round(s / 60) + L(' min', ' min ago');
+  return L('há ', '') + Math.round(s / 3600) + L('h', 'h ago');
 }
 
 function desenharAbas(escolhida) {
@@ -491,17 +493,18 @@ function desenharAbas(escolhida) {
     if (!c) {
       // Pode estar configurada e ociosa; aqui só sabemos que nada chegou.
       caixa.className = 'conexao';
-      caixa.innerHTML = '<b>Nenhuma chamada ainda.</b> Cole a configuração, use o ' +
-        'agente uma vez e esta linha muda sozinha.';
+      caixa.innerHTML = '<b>' + L('Nenhuma chamada ainda.', 'No calls yet.') + '</b> ' +
+        L('Cole a configuração, use o agente uma vez e esta linha muda sozinha.',
+          'Paste the config, use the agent once, and this line updates by itself.');
     } else {
       const quando = haQuanto(c.ha_segundos);
       const ctx = (c.contextos || []).length
-        ? ' Aprendendo em: ' + c.contextos.map(x => '<code>' + x + '</code>').join(', ') + '.'
+        ? ' ' + L('Aprendendo em:', 'Learning in:') + ' ' + c.contextos.map(x => '<code>' + x + '</code>').join(', ') + '.'
         : '';
       caixa.className = 'conexao ' + (c.ativo ? 'viva' : 'fria');
-      caixa.innerHTML = (c.ativo ? '<b>Conectado.</b> ' : '<b>Já conectou.</b> ') +
-        c.chamadas + (c.chamadas === 1 ? ' chamada, ' : ' chamadas, ') +
-        'a última ' + quando + '.' + ctx;
+      caixa.innerHTML = (c.ativo ? '<b>' + L('Conectado.', 'Connected.') + '</b> ' : '<b>' + L('Já conectou.', 'Connected before.') + '</b> ') +
+        c.chamadas + (c.chamadas === 1 ? L(' chamada, ', ' call, ') : L(' chamadas, ', ' calls, ')) +
+        L('a última ', 'last one ') + quando + '.' + ctx;
     }
   }
 
@@ -520,7 +523,7 @@ async function salvar(caminho, corpo) {
   });
   if (!r.ok) {
     const erro = await r.json().catch(() => ({}));
-    throw new Error(erro.detail || 'falhou com status ' + r.status);
+    throw new Error(erro.detail || L('falhou com status ', 'failed with status ') + r.status);
   }
   return r.json();
 }
@@ -532,14 +535,14 @@ async function carregarCredito() {
     $('credito').innerHTML = contas.length ? contas.map(c => {
       const saldo = c.saldo_usd != null ? c.saldo_usd : c.saldo;
       const valor = saldo != null ? 'US$ ' + Number(saldo).toFixed(2)
-        : c.limite != null ? 'limite ' + c.limite : (c.detalhe || '—');
+        : c.limite != null ? L('limite ', 'limit ') + c.limite : (c.detalhe || '—');
       const baixo = saldo != null && Number(saldo) < 1;
       return '<div class="credito">' + logo(c.provedor || c.provider || '') +
         '<span>' + (c.conta || c.provedor || c.provider || '') + '</span>' +
         '<span class="valor' + (baixo ? ' baixo' : '') + '">' + valor + '</span></div>';
-    }).join('') : '<p class="vazio">Nenhum provedor desta cadeia informa crédito restante.</p>';
+    }).join('') : '<p class="vazio">' + L('Nenhum provedor desta cadeia informa crédito restante.', 'No provider in this chain reports remaining credit.') + '</p>';
   } catch (e) {
-    $('credito').innerHTML = '<p class="vazio">Não consegui consultar o crédito.</p>';
+    $('credito').innerHTML = '<p class="vazio">' + L('Não consegui consultar o crédito.', 'Could not read credit.') + '</p>';
   }
 }
 
@@ -549,33 +552,33 @@ async function carregarHistorico() {
     const resumo = d.resumo || [];
     if (!resumo.length) {
       $('historico').innerHTML =
-        '<p class="vazio">Ainda não há dias registrados. Um dia vira uma barra aqui.</p>';
+        '<p class="vazio">' + L('Ainda não há dias registrados. Um dia vira uma barra aqui.', 'No recorded days yet. A day becomes a bar here.') + '</p>';
       return;
     }
-    const legenda = '<div class="historico-legenda" aria-label="Legenda dos dias">' +
-      '<span><i data-s="vazio"></i>sem chamadas</span>' +
-      '<span><i data-s="ok"></i>saudável</span>' +
-      '<span><i data-s="atencao"></i>instável</span>' +
-      '<span><i data-s="ruim"></i>com falha</span></div>';
+    const legenda = '<div class="historico-legenda" aria-label="' + L('Legenda dos dias', 'Day legend') + '">' +
+      '<span><i data-s="vazio"></i>' + L('sem chamadas', 'no calls') + '</span>' +
+      '<span><i data-s="ok"></i>' + L('saudável', 'healthy') + '</span>' +
+      '<span><i data-s="atencao"></i>' + L('instável', 'unstable') + '</span>' +
+      '<span><i data-s="ruim"></i>' + L('com falha', 'failed') + '</span></div>';
     $('historico').innerHTML = legenda + resumo.map(r => {
       const faixa = (d.faixas || {})[r.provedor] || [];
       const barras = faixa.map(dia =>
         '<i data-s="' + dia.saude + '" title="' + dia.dia + ': ' + dia.ok + ' ok, ' +
-        dia.err + ' erro' + (dia.motivo ? ': ' + dia.motivo : '') + '"></i>').join('');
+        dia.err + L(' erro', ' error') + (dia.motivo ? ': ' + dia.motivo : '') + '"></i>').join('');
       const alertas = [];
-      if (r.dias_de_atencao) alertas.push(r.dias_de_atencao + ' instável');
-      if (r.dias_ruins) alertas.push(r.dias_ruins + ' com falha');
-      const nota = r.dias_com_uso + ' dias usados · ' +
-        (alertas.length ? alertas.join(' · ') : 'todos saudáveis') +
+      if (r.dias_de_atencao) alertas.push(r.dias_de_atencao + L(' instável', ' unstable'));
+      if (r.dias_ruins) alertas.push(r.dias_ruins + L(' com falha', ' failed'));
+      const nota = r.dias_com_uso + L(' dias usados · ', ' days used · ') +
+        (alertas.length ? alertas.join(' · ') : L('todos saudáveis', 'all healthy')) +
         (r.pior_motivo ? ' · ' + r.pior_motivo : '');
       return '<div class="linhadia"><div class="topo">' + logo(r.provedor) +
         '<span>' + r.provedor + '</span>' +
         '<span class="up' + (r.uptime < 99 ? ' baixo' : '') + '">' + r.uptime + '%</span></div>' +
         '<div class="dias">' + barras + '</div>' +
-        '<div class="legenda"><em>30 dias atrás</em><em>' + nota + '</em><em>hoje</em></div></div>';
+        '<div class="legenda"><em>' + L('30 dias atrás', '30 days ago') + '</em><em>' + nota + '</em><em>' + L('hoje', 'today') + '</em></div></div>';
     }).join('');
   } catch (e) {
-    $('historico').innerHTML = '<p class="vazio">Não consegui ler o histórico.</p>';
+    $('historico').innerHTML = '<p class="vazio">' + L('Não consegui ler o histórico.', 'Could not read history.') + '</p>';
   }
 }
 
@@ -622,6 +625,12 @@ async function trocarIdioma(qual) {
   desenharOrdemCadeia();
   desenharTiers();
   if (ferramentas.length) desenharAbas((document.querySelector('.aba[aria-pressed="true"]') || {}).dataset?.id);
+  desenharReservados();
+  desenharContas();
+  carregarUso();
+  carregarHistorico();
+  carregarCredito();
+  carregarJanelas();
 }
 
 async function atualizar() {
@@ -629,8 +638,8 @@ async function atualizar() {
     const d = await (await fetch('painel/dados')).json();
     estado = d;
     desenharAgora();
-    $('pulso').innerHTML = '<b>' + d.provedores.length + '</b> na cadeia<br>' +
-      '<b>' + d.chamadas + '</b> chamadas';
+    $('pulso').innerHTML = '<b>' + d.provedores.length + '</b> ' + L('na cadeia', 'in chain') + '<br>' +
+      '<b>' + d.chamadas + '</b> ' + L('chamadas', 'calls');
     if (d.ferramentas) {
       // Redesenha porque a conexão pode mudar enquanto a tela está aberta.
       const escolhida = (document.querySelector('.aba[aria-pressed="true"]') || {}).dataset;
@@ -638,7 +647,7 @@ async function atualizar() {
       const pedida = new URLSearchParams(window.location.search).get('ferramenta');
       desenharAbas((escolhida && escolhida.id) || pedida || (ferramentas[0] && ferramentas[0].id));
     }
-  } catch (e) { $('pulso').textContent = 'servidor fora do ar'; }
+  } catch (e) { $('pulso').textContent = L('servidor fora do ar', 'server offline'); }
 }
 
 let contasDeTodos = false;
@@ -648,9 +657,9 @@ async function carregarCredenciais() {
   try {
     contas = await (await fetch('contas')).json();
     const d = await (await fetch('credenciais')).json();
-    $('onde-cofre').textContent = d.cofre ? 'Cofre desta máquina: ' + d.cofre : '';
+    $('onde-cofre').textContent = d.cofre ? L('Cofre desta máquina: ', 'Vault on this machine: ') + d.cofre : '';
     $('trazer-ambiente').hidden = !(d.credenciais || []).some(c => c.origem === 'ambiente');
-  } catch (e) { $('credenciais').textContent = 'não consegui ler as contas'; return; }
+  } catch (e) { $('credenciais').textContent = L('não consegui ler as contas', 'could not read accounts'); return; }
 
   desenharReservados();
   desenharContas();
@@ -671,19 +680,19 @@ function desenharReservados() {
     (ordem.length ? '<ol class="lista-cadeia lista-reforcado">' + ordem.map((id, i) => {
       const c = porId.get(id);
       return '<li>' + logo(c.provider) + '<span>' + c.label +
-        (c.paga ? ' <small>paga</small>' : '') + '</span><code>' + c.id + '</code>' +
+        (c.paga ? ' <small>' + L('paga', 'paid') + '</small>' : '') + '</span><code>' + c.id + '</code>' +
         '<span class="mover">' +
         '<button type="button" data-ref-move="-1" data-indice="' + i +
-        '" aria-label="Subir ' + c.label + '"' + (i === 0 ? ' disabled' : '') + '>↑</button>' +
+        '" aria-label="' + L('Subir ', 'Move up ') + c.label + '"' + (i === 0 ? ' disabled' : '') + '>↑</button>' +
         '<button type="button" data-ref-move="1" data-indice="' + i +
-        '" aria-label="Descer ' + c.label + '"' + (i === ordem.length - 1 ? ' disabled' : '') + '>↓</button>' +
+        '" aria-label="' + L('Descer ', 'Move down ') + c.label + '"' + (i === ordem.length - 1 ? ' disabled' : '') + '>↓</button>' +
         '<button type="button" class="apagar" data-ref-remove="' + i +
-        '" aria-label="Remover ' + c.label + '">×</button></span></li>';
-    }).join('') + '</ol>' : '<p class="vazio compacto">Nenhuma conta escolhida.</p>') +
+        '" aria-label="' + L('Remover ', 'Remove ') + c.label + '">×</button></span></li>';
+    }).join('') + '</ol>' : '<p class="vazio compacto">' + L('Nenhuma conta escolhida.', 'No account selected.') + '</p>') +
     (fora.length ? '<div class="adicionar-ref"><select id="ref-conta">' +
       fora.map(c => '<option value="' + c.id + '">' + c.label +
-        (c.paga ? ' · paga' : '') + '</option>').join('') + '</select>' +
-      '<button type="button" class="acao" id="ref-adicionar">adicionar</button></div>' : '') +
+        (c.paga ? ' · ' + L('paga', 'paid') : '') + '</option>').join('') + '</select>' +
+      '<button type="button" class="acao" id="ref-adicionar">' + L('adicionar', 'add') + '</button></div>' : '') +
     '<p class="como">' + T('cred.ref_header') +
     ' <code>X-RobinBandit-Mode: reinforced</code>.</p></div>';
 
@@ -692,10 +701,10 @@ function desenharReservados() {
       method: 'PUT', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ contas: nova }),
     });
-    if (!r.ok) throw new Error((await r.json()).detail || 'não deu');
+    if (!r.ok) throw new Error((await r.json()).detail || L('não deu', 'failed'));
     contas.reforcado = (await r.json()).contas;
     desenharReservados();
-    recado('recado-prov', 'Nova ordem aplicada na próxima chamada.');
+    recado('recado-prov', L('Nova ordem aplicada na próxima chamada.', 'New order applies to the next call.'));
   };
   document.querySelectorAll('[data-ref-move]').forEach(botao =>
     botao.addEventListener('click', async () => {
@@ -718,8 +727,8 @@ function desenharReservados() {
 
 function desenharContas() {
   $('filtro-cred').innerHTML =
-    '<button class="aba" type="button" data-cred="false" aria-pressed="' + !contasDeTodos + '">Configuradas</button>' +
-    '<button class="aba" type="button" data-cred="true" aria-pressed="' + contasDeTodos + '">Todas</button>';
+    '<button class="aba" type="button" data-cred="false" aria-pressed="' + !contasDeTodos + '">' + L('Configuradas', 'Configured') + '</button>' +
+    '<button class="aba" type="button" data-cred="true" aria-pressed="' + contasDeTodos + '">' + L('Todas', 'All') + '</button>';
   document.querySelectorAll('[data-cred]').forEach(b => b.addEventListener('click', () => {
     contasDeTodos = b.dataset.cred === 'true';
     desenharContas();
@@ -731,8 +740,8 @@ function desenharContas() {
     .filter(c => contasDeTodos || c.configurada);
   if (!lista.length) {
     $('credenciais').innerHTML = '<p class="vazio">' + (contasDeTodos
-      ? 'Nenhuma conta no catálogo.'
-      : 'Nenhuma conta configurada ainda. Veja todas acima e cole uma chave.') + '</p>';
+      ? L('Nenhuma conta no catálogo.', 'No account in the catalog.')
+      : L('Nenhuma conta configurada ainda. Veja todas acima e cole uma chave.', 'No account configured yet. See all above and paste a key.')) + '</p>';
     return;
   }
 
@@ -749,44 +758,45 @@ function desenharContas() {
         return '<div class="cred"><div class="topo">' +
           '<span class="var">' + c.label + '</span>' +
           '<span class="estado' + (c.configurada ? ' tem' : '') + '">' +
-          (c.configurada ? 'autenticado' : 'não conectado') + '</span></div>' +
-          '<p class="cli">Quem autentica é o <b>' + qual + '</b>, com a assinatura que você já usa. ' +
-          'O RobinBandit não lê nem renova credencial. Ele só chama o executável.' +
+          (c.configurada ? L('autenticado', 'authenticated') : L('não conectado', 'not connected')) + '</span></div>' +
+          '<p class="cli">' + L('Quem autentica é o ', 'Authentication is handled by ') + '<b>' + qual + '</b>, ' +
+          L('com a assinatura que você já usa. O RobinBandit não lê nem renova credencial. Ele só chama o executável.',
+            'with the subscription you already use. RobinBandit does not read or renew credentials. It only calls the executable.') +
           // Mostra detalhe só quando ele acrescenta informação.
           (c.detalhe && c.detalhe !== 'autenticado' ? ' <em>' + c.detalhe + '</em>' : '') +
-          (c.configurada ? '' : ' Rode <code>' + comando + '</code> no terminal e recarregue.') +
+          (c.configurada ? '' : L(' Rode ', ' Run ') + '<code>' + comando + '</code>' + L(' no terminal e recarregue.', ' in the terminal and reload.')) +
           '</p></div>';
       }
       // A marca de paga é da chave, não da variável inteira.
       const chaves = (c.chaves || []).map(k =>
         '<span class="chave' + (k.paga ? ' e-paga' : '') + '">' +
-        '<b' + (k.nome ? '' : ' class="anonima"') + '>' + (k.nome || 'sem nome') + '</b>' +
+        '<b' + (k.nome ? '' : ' class="anonima"') + '>' + (k.nome || L('sem nome', 'unnamed')) + '</b>' +
         '<span class="dica">' + k.dica + '</span>' +
         '<button type="button" class="marca-paga' + (k.paga ? '' : ' off') + '" data-paga="' +
         c.key_env + '" data-i="' + k.i + '" data-vale="' + (k.paga ? '1' : '0') +
-        '" title="' + (k.paga ? 'crédito pago; clique para desmarcar' : 'marcar como crédito pago') +
-        '">paga</button>' +
+        '" title="' + (k.paga ? L('crédito pago; clique para desmarcar', 'paid credit; click to unmark') : L('marcar como crédito pago', 'mark as paid credit')) +
+        '">' + L('paga', 'paid') + '</button>' +
         '<span class="acoes">' +
         '<button type="button" data-renomear="' + c.key_env + '" data-i="' + k.i +
-        '" data-nome="' + (k.nome || '') + '" title="dar um nome a esta chave">&#9998;</button>' +
+        '" data-nome="' + (k.nome || '') + '" title="' + L('dar um nome a esta chave', 'name this key') + '">&#9998;</button>' +
         '<button type="button" class="apagar" data-apagar="' + c.key_env + '" data-i="' + k.i +
-        '" title="remover esta chave">&times;</button></span>' +
+        '" title="' + L('remover esta chave', 'remove this key') + '">&times;</button></span>' +
         '</span>').join('');
       return '<div class="cred">' +
         '<div class="topo">' +
         '<span class="var">' + c.key_env + '</span>' +
         (c.label && c.label !== c.provider ? '<span class="conta-nome">' + c.label + '</span>' : '') +
         '<span class="estado' + (c.configurada ? ' tem' : '') + '">' +
-        (c.configurada ? c.origem : 'sem chave') + '</span>' +
+        (c.configurada ? c.origem : L('sem chave', 'no key')) + '</span>' +
         '</div>' +
         (chaves ? '<div class="chaves">' + chaves + '</div>' : '') +
         '<form data-var="' + c.key_env + '">' +
         '<input class="valor" type="password" placeholder="' +
-        (c.configurada ? 'adicionar outra chave' : 'colar a chave') +
+        (c.configurada ? L('adicionar outra chave', 'add another key') : L('colar a chave', 'paste the key')) +
         '" autocomplete="off" spellcheck="false">' +
-        '<input class="apelido" placeholder="apelido, ex.: conta pessoal" autocomplete="off">' +
-        '<label class="paga"><input type="checkbox" class="e-paga"> crédito pago</label>' +
-        '<button type="submit" class="acao">guardar no cofre</button>' +
+        '<input class="apelido" placeholder="' + L('apelido, ex.: conta pessoal', 'nickname, e.g. personal account') + '" autocomplete="off">' +
+        '<label class="paga"><input type="checkbox" class="e-paga"> ' + L('crédito pago', 'paid credit') + '</label>' +
+        '<button type="submit" class="acao">' + L('guardar no cofre', 'save to vault') + '</button>' +
         '</form></div>';
     }).join('') + '</div>').join('');
 
@@ -806,12 +816,12 @@ function desenharContas() {
             rotulo: apelido.value.trim(), paga: paga.checked,
           }),
         });
-        if (!r.ok) throw new Error((await r.json()).detail || 'não deu');
+        if (!r.ok) throw new Error((await r.json()).detail || L('não deu', 'failed'));
         // O valor nunca volta para a tela.
         campo.value = '';
         apelido.value = '';
         paga.checked = false;
-        recado('recado-cred', f.dataset.var + ' guardada no cofre.');
+        recado('recado-cred', f.dataset.var + L(' guardada no cofre.', ' saved to the vault.'));
         carregarCredenciais();
       } catch (e) { recado('recado-cred', e.message); }
     }));
@@ -830,7 +840,7 @@ function desenharContas() {
   document.querySelectorAll('#credenciais [data-renomear]').forEach(b =>
     b.addEventListener('click', async () => {
       const atual = b.dataset.nome || '';
-      const nome = prompt('Nome desta chave (para você saber qual é qual):', atual);
+      const nome = prompt(L('Nome desta chave (para você saber qual é qual):', 'Name this key (so you know which is which):'), atual);
       if (nome === null) return;
       try {
         await fetch('credenciais/' + b.dataset.renomear + '/' + b.dataset.i, {
@@ -845,7 +855,7 @@ function desenharContas() {
     b.addEventListener('click', async () => {
       try {
         await fetch('credenciais/' + b.dataset.apagar + '/' + b.dataset.i, { method: 'DELETE' });
-        recado('recado-cred', 'Removida do cofre. O ambiente não foi tocado.');
+        recado('recado-cred', L('Removida do cofre. O ambiente não foi tocado.', 'Removed from the vault. The environment was not touched.'));
         carregarCredenciais();
       } catch (e) { recado('recado-cred', e.message); }
     }));
@@ -853,9 +863,10 @@ function desenharContas() {
 
 function milhar(n) {
   // Compacta números grandes para leitura rápida.
-  if (n >= 1e9) return (n / 1e9).toFixed(1).replace('.', ',') + ' bi';
-  if (n >= 1e6) return (n / 1e6).toFixed(1).replace('.', ',') + ' mi';
-  if (n >= 1e3) return (n / 1e3).toFixed(1).replace('.', ',') + ' mil';
+  const decimal = IDIOMA === 'pt' ? ',' : '.';
+  if (n >= 1e9) return (n / 1e9).toFixed(1).replace('.', decimal) + L(' bi', 'B');
+  if (n >= 1e6) return (n / 1e6).toFixed(1).replace('.', decimal) + L(' mi', 'M');
+  if (n >= 1e3) return (n / 1e3).toFixed(1).replace('.', decimal) + L(' mil', 'k');
   return String(n);
 }
 
@@ -866,8 +877,10 @@ function dolar(n) {
   }).format(Number(n || 0));
 }
 
-const MESES = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
-const SEMANA = ['', 'seg', '', 'qua', '', 'sex', ''];
+const MESES_PT = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
+const MESES_EN = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const SEMANA_PT = ['', 'seg', '', 'qua', '', 'sex', ''];
+const SEMANA_EN = ['', 'Mon', '', 'Wed', '', 'Fri', ''];
 
 function calendarioDe(dias) {
   // Alinha a grade pelo domingo da primeira semana.
@@ -880,8 +893,8 @@ function calendarioDe(dias) {
   dias.forEach(x => {
     const n = x.total === 0 ? 0 : Math.min(4, Math.ceil(x.total / pico * 4));
     const quanto = x.total
-      ? milhar(x.total) + ' tokens em ' + x.chamadas + ' chamada' + (x.chamadas === 1 ? '' : 's')
-      : 'sem uso';
+      ? milhar(x.total) + L(' tokens em ', ' tokens in ') + x.chamadas + (x.chamadas === 1 ? L(' chamada', ' call') : L(' chamadas', ' calls'))
+      : L('sem uso', 'no usage');
     celulas.push('<i data-n="' + n + '" title="' + x.dia + ': ' + quanto + '"></i>');
   });
 
@@ -907,15 +920,16 @@ function calendarioDe(dias) {
     '<div class="meses" style="grid-template-columns:' +
     rotulos.map(r => 'calc(' + r.largura + ' * 15px)').join(' ') + '">' +
     // Mês estreito demais fica sem rótulo.
-    rotulos.map(r => '<span>' + (r.largura > 2 ? MESES[r.mes] : '') + '</span>').join('') +
+    rotulos.map(r => '<span>' + (r.largura > 2 ? (IDIOMA === 'pt' ? MESES_PT : MESES_EN)[r.mes] : '') + '</span>').join('') +
     '</div>' +
-    '<div class="semana">' + SEMANA.map(d => '<span>' + d + '</span>').join('') + '</div>' +
+    '<div class="semana">' + (IDIOMA === 'pt' ? SEMANA_PT : SEMANA_EN).map(d => '<span>' + d + '</span>').join('') + '</div>' +
     '<div class="malha">' + celulas.join('') + '</div>' +
     '</div>' +
-    '<div class="legenda"><b>menos</b>' +
+    '<div class="legenda"><b>' + L('menos', 'less') + '</b>' +
     [0, 1, 2, 3, 4].map(n => '<i data-n="' + n + '"></i>').join('') +
-    '<b style="margin-left:4px">mais</b>' +
-    '<span class="fim">cada quadrado é um dia; o mais escuro é o dia em que você mais gastou</span>' +
+    '<b style="margin-left:4px">' + L('mais', 'more') + '</b>' +
+    '<span class="fim">' + L('cada quadrado é um dia; o mais escuro é o dia em que você mais gastou',
+      'each square is one day; the darkest one is the day you spent the most') + '</span>' +
     '</div>';
 }
 
@@ -923,7 +937,7 @@ async function carregarUso() {
   let d;
   desenharPeriodosUso();
   try { d = await (await fetch('uso?dias=' + periodoUso)).json(); }
-  catch (e) { $('uso-calendario').textContent = 'não consegui ler o uso'; return; }
+  catch (e) { $('uso-calendario').textContent = L('não consegui ler o uso', 'could not read usage'); return; }
 
   const mes = d.periodo || d.total || {};
   const tudo = d.periodo || d.total || {};
@@ -933,25 +947,24 @@ async function carregarUso() {
   // Sem dados, mostra explicação em vez de métricas zeradas.
   const comCusto = mes.chamadas_com_custo || 0;
   $('uso-numeros').innerHTML = gastou
-    ? '<div><b class="verde">' + milhar(mes.entrada || 0) + '</b><span>entrada</span>' +
-      '<small>tokens nos últimos ' + periodoUso + ' dias</small></div>' +
-      '<div><b>' + milhar(mes.saida || 0) + '</b><span>saída</span>' +
-      '<small>' + (mes.cacheado ? milhar(mes.cacheado) + ' tokens vieram do cache' : 'tokens nos últimos ' + periodoUso + ' dias') + '</small></div>' +
-      '<div><b class="ambar">' + (comCusto ? dolar(mes.custo_usd) : 'não informado') + '</b><span>custo em USD</span>' +
-      '<small>' + (comCusto ? 'informado em ' + comCusto + ' de ' + mes.chamadas + ' chamadas' : 'nenhum provedor enviou preço') + '</small></div>' +
-      '<div><b>' + (mes.chamadas || 0) + '</b><span>chamadas</span>' +
-      '<small>' + milhar(mes.total || 0) + ' tokens no total</small></div>'
+    ? '<div><b class="verde">' + milhar(mes.entrada || 0) + '</b><span>' + L('entrada', 'input') + '</span>' +
+      '<small>' + L('tokens nos últimos ', 'tokens in the last ') + periodoUso + L(' dias', ' days') + '</small></div>' +
+      '<div><b>' + milhar(mes.saida || 0) + '</b><span>' + L('saída', 'output') + '</span>' +
+      '<small>' + (mes.cacheado ? milhar(mes.cacheado) + L(' tokens vieram do cache', ' tokens came from cache') : L('tokens nos últimos ', 'tokens in the last ') + periodoUso + L(' dias', ' days')) + '</small></div>' +
+      '<div><b class="ambar">' + (comCusto ? dolar(mes.custo_usd) : L('não informado', 'not reported')) + '</b><span>' + L('custo em USD', 'cost in USD') + '</span>' +
+      '<small>' + (comCusto ? L('informado em ', 'reported in ') + comCusto + L(' de ', ' of ') + mes.chamadas + L(' chamadas', ' calls') : L('nenhum provedor enviou preço', 'no provider reported price')) + '</small></div>' +
+      '<div><b>' + (mes.chamadas || 0) + '</b><span>' + L('chamadas', 'calls') + '</span>' +
+      '<small>' + milhar(mes.total || 0) + L(' tokens no total', ' total tokens') + '</small></div>'
     : '';
 
   $('uso-tendencia').innerHTML = gastou ? graficoTendencia(dias) : '';
-  $('uso-periodo-titulo').textContent = periodoUso === 365 ? 'Seu ano' : 'Dias do período';
+  $('uso-periodo-titulo').textContent = periodoUso === 365 ? L('Seu ano', 'Your year') : L('Dias do período', 'Days in period');
 
   $('uso-calendario').innerHTML = gastou
     ? calendarioDe(dias)
-    : '<div class="sem-uso"><b>Nenhum turno medido ainda</b><span>' +
-      'A contagem começa na primeira resposta que passar por aqui. Aponte sua ' +
-      'ferramenta para este endereço na tela Conectar. Só entra no gráfico quem ' +
-      'informa o consumo junto da resposta.</span></div>';
+    : '<div class="sem-uso"><b>' + L('Nenhum turno medido ainda', 'No measured turn yet') + '</b><span>' +
+      L('A contagem começa na primeira resposta que passar por aqui. Aponte sua ferramenta para este endereço na tela Conectar. Só entra no gráfico quem informa o consumo junto da resposta.',
+        'Counting starts with the first response that passes through here. Point your tool to this address on Connect. The chart only includes providers that report usage with the response.') + '</span></div>';
 
   const linhas = d.por_provedor || [];
   const maior = Math.max(1, ...linhas.map(x => x.total));
@@ -960,57 +973,55 @@ async function carregarUso() {
     '<div class="gasto">' + logo(x.provedor) +
     '<span class="quem">' + x.provedor + '</span>' +
     '<span class="barra"><span style="width:' + Math.round(x.total / maior * 100) + '%"></span></span>' +
-    '<span class="detalhe">' + milhar(x.entrada) + ' entrada<br>' + milhar(x.saida) + ' saída</span>' +
+    '<span class="detalhe">' + milhar(x.entrada) + ' ' + L('entrada', 'input') + '<br>' + milhar(x.saida) + ' ' + L('saída', 'output') + '</span>' +
     '<span class="n">' + milhar(x.total) + '<small>' +
-      (x.chamadas_com_custo ? dolar(x.custo_usd) : 'custo não informado') +
+      (x.chamadas_com_custo ? dolar(x.custo_usd) : L('custo não informado', 'cost not reported')) +
     '</small></span></div>').join('');
 }
 
 async function carregarJanelas() {
   let d;
   try { d = await (await fetch('janelas')).json(); }
-  catch (e) { $('janelas').textContent = 'não consegui ler as janelas'; return; }
+  catch (e) { $('janelas').textContent = L('não consegui ler as janelas', 'could not read windows'); return; }
 
   const linhas = d.janelas || [];
   $('janelas').innerHTML = linhas.length ? linhas.map(j => {
     if (!j.aberta) {
       return '<div class="janela parada"><div class="topo">' + logo(j.provedor) +
         '<span class="quem">' + j.provedor + '</span>' +
-        '<span class="quanto"><small>bloco fechado</small></span></div>' +
-        '<p class="conta">Nenhuma chamada na janela atual. A próxima abre um bloco de ' +
-        j.horas + 'h.</p></div>';
+        '<span class="quanto"><small>' + L('bloco fechado', 'closed block') + '</small></span></div>' +
+        '<p class="conta">' + L('Nenhuma chamada na janela atual. A próxima abre um bloco de ',
+          'No call in the current window. The next one opens a ') +
+        j.horas + L('h.', 'h block.') + '</p></div>';
     }
     const pct = Math.round(j.fracao * 100);
     // Acima de 80%, destaca proximidade do limite.
     const perto = j.fracao >= 0.8 ? ' perto' : '';
     return '<div class="janela"><div class="topo">' + logo(j.provedor) +
       '<span class="quem">' + j.provedor + '</span>' +
-      '<span class="quanto">' + j.vira_em + ' <small>para virar</small></span></div>' +
+      '<span class="quanto">' + j.vira_em + ' <small>' + L('para virar', 'to roll over') + '</small></span></div>' +
       '<div class="trilho"><div class="cheio' + perto + '" style="width:' + pct + '%"></div></div>' +
-      '<p class="conta">' + j.chamadas + ' chamada' + (j.chamadas === 1 ? '' : 's') +
-      ' neste bloco de ' + j.horas + 'h' +
-      (j.bloqueios ? ' · <b>parou por limite ' + j.bloqueios + 'x</b>' : '') +
-      (j.erros ? ' · ' + j.erros + ' erro' + (j.erros === 1 ? '' : 's') : '') +
+      '<p class="conta">' + j.chamadas + (j.chamadas === 1 ? L(' chamada', ' call') : L(' chamadas', ' calls')) +
+      L(' neste bloco de ', ' in this ') + j.horas + L('h', 'h block') +
+      (j.bloqueios ? ' · <b>' + L('parou por limite ', 'stopped by limit ') + j.bloqueios + 'x</b>' : '') +
+      (j.erros ? ' · ' + j.erros + (j.erros === 1 ? L(' erro', ' error') : L(' erros', ' errors')) : '') +
       '</p></div>';
   }).join('')
-    : '<p class="vazio">Nenhum provedor de assinatura na cadeia. Janela é coisa de ' +
-      'assinatura: quem cobra por token tem limite por minuto, e disso o roteador ' +
-      'já cuida sozinho.</p>';
+    : '<p class="vazio">' + L('Nenhum provedor de assinatura na cadeia. Janela é coisa de assinatura: quem cobra por token tem limite por minuto, e disso o roteador já cuida sozinho.',
+      'No subscription provider in the chain. Windows are for subscriptions: token-billed providers have per-minute limits, and the router already handles those.') + '</p>';
 
   const p = d.ping || {};
   $('ping').innerHTML =
-    '<div class="topo"><h2>Perguntar se a cota já voltou</h2>' +
+    '<div class="topo"><h2>' + L('Perguntar se a cota já voltou', 'Ask whether quota is back') + '</h2>' +
     '<button type="button" class="acao liga-ping" id="btn-ping">' +
-    (p.ativo ? 'desligar' : 'ligar') + '</button></div>' +
-    '<p>O cooldown vence por tempo, não por evidência: se a cota voltou antes, o ' +
-    'roteador continua ignorando o provedor; se não voltou, quem descobre é o seu ' +
-    'próximo turno. O ping é uma chamada mínima, fora de um turno, só para saber. ' +
-    'Custa uma chamada e por isso vem desligado.</p>' +
+    (p.ativo ? L('desligar', 'turn off') : L('ligar', 'turn on')) + '</button></div>' +
+    '<p>' + L('O cooldown vence por tempo, não por evidência: se a cota voltou antes, o roteador continua ignorando o provedor; se não voltou, quem descobre é o seu próximo turno. O ping é uma chamada mínima, fora de um turno, só para saber. Custa uma chamada e por isso vem desligado.',
+      'Cooldown expires by time, not evidence: if quota returned earlier, the router keeps ignoring the provider; if it did not, your next turn discovers it. Ping is a minimal call outside a turn, only to check. It costs one call, so it starts off.') + '</p>' +
     '<div class="campos">' +
-    '<label>a cada <input type="number" id="ping-intervalo" min="60" step="30" value="' +
-    Math.round(p.intervalo_s || 300) + '"> segundos</label>' +
+    '<label>' + L('a cada ', 'every ') + '<input type="number" id="ping-intervalo" min="60" step="30" value="' +
+    Math.round(p.intervalo_s || 300) + '"> ' + L('segundos', 'seconds') + '</label>' +
     '<label><input type="checkbox" id="ping-cooldown"' + (p.so_em_cooldown ? ' checked' : '') +
-    '> apenas provedores em cooldown</label>' +
+    '> ' + L('apenas provedores em cooldown', 'only providers in cooldown') + '</label>' +
     '</div>';
 
   $('btn-ping').addEventListener('click', () => salvarPing({ ativo: !p.ativo }));
@@ -1026,8 +1037,8 @@ async function salvarPing(mudanca) {
       method: 'PUT', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(mudanca),
     });
-    if (!r.ok) throw new Error('não deu');
-    recado('recado-janela', 'Pronto.');
+    if (!r.ok) throw new Error(L('não deu', 'failed'));
+    recado('recado-janela', L('Pronto.', 'Done.'));
     carregarJanelas();
   } catch (e) { recado('recado-janela', e.message); }
 }
@@ -1038,16 +1049,16 @@ function ligarImportacao() {
   b.dataset.pronto = '1';
   b.addEventListener('click', async () => {
     b.disabled = true;
-    b.textContent = 'trazendo…';
+    b.textContent = L('trazendo…', 'importing…');
     try {
       const d = await (await fetch('credenciais/importar', { method: 'POST' })).json();
       recado('recado-cred', d.trazidas.length
-        ? d.trazidas.length + ' no cofre: ' + d.trazidas.join(', ')
-        : 'Nada novo: o cofre já tem tudo que o ambiente tinha.');
+        ? d.trazidas.length + L(' no cofre: ', ' in the vault: ') + d.trazidas.join(', ')
+        : L('Nada novo: o cofre já tem tudo que o ambiente tinha.', 'Nothing new: the vault already has everything the environment had.'));
       carregarCredenciais();
-    } catch (e) { recado('recado-cred', 'não consegui trazer'); }
+    } catch (e) { recado('recado-cred', L('não consegui trazer', 'could not import')); }
     b.disabled = false;
-    b.textContent = 'trazer para o cofre';
+    b.textContent = L('trazer para o cofre', 'import to vault');
   });
 }
 
@@ -1069,15 +1080,15 @@ function desenharFormDeConta() {
       label: $('conta-id').value.trim(),
       paga: $('conta-paga').checked,
     };
-    if (!corpo.id || !corpo.variavel) { recado('recado-cred', 'Falta o apelido ou o nome da variável.'); return; }
+    if (!corpo.id || !corpo.variavel) { recado('recado-cred', L('Falta o apelido ou o nome da variável.', 'Nickname or variable name is missing.')); return; }
     try {
       const r = await fetch('contas', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(corpo),
       });
-      if (!r.ok) throw new Error((await r.json()).detail || 'não deu');
+      if (!r.ok) throw new Error((await r.json()).detail || L('não deu', 'failed'));
       $('conta-id').value = ''; $('conta-var').value = ''; $('conta-paga').checked = false;
-      recado('recado-cred', 'Conta criada. Agora cole a chave dela abaixo.');
+      recado('recado-cred', L('Conta criada. Agora cole a chave dela abaixo.', 'Account created. Now paste its key below.'));
       contasDeTodos = true;
       carregarCredenciais();
     } catch (e) { recado('recado-cred', e.message); }
@@ -1103,7 +1114,12 @@ function trocarTela(qual) {
 }
 
 function desenharPeriodosUso() {
-  const rotulos = { 7: '7 dias', 30: '30 dias', 90: '90 dias', 365: '1 ano' };
+  const rotulos = {
+    7: L('7 dias', '7 days'),
+    30: L('30 dias', '30 days'),
+    90: L('90 dias', '90 days'),
+    365: L('1 ano', '1 year'),
+  };
   $('uso-periodos').innerHTML = Object.keys(rotulos).map(n =>
     '<button class="aba" type="button" data-periodo="' + n + '" aria-pressed="' +
     (Number(n) === periodoUso) + '">' + rotulos[n] + '</button>'
@@ -1125,9 +1141,9 @@ function graficoTendencia(dias) {
   const area = margem + ',' + (altura - margem) + ' ' + pontos + ' ' +
     x(dias.length - 1).toFixed(1) + ',' + (altura - margem);
   const melhor = dias.reduce((a, b) => Number(a.total || 0) >= Number(b.total || 0) ? a : b);
-  return '<div class="tendencia-topo"><span>Tokens por dia</span><b>pico de ' +
-    milhar(melhor.total || 0) + ' em ' + melhor.dia + '</b></div>' +
-    '<svg viewBox="0 0 ' + largura + ' ' + altura + '" role="img" aria-label="Tendência de tokens no período">' +
+  return '<div class="tendencia-topo"><span>' + L('Tokens por dia', 'Tokens per day') + '</span><b>' +
+    L('pico de ', 'peak of ') + milhar(melhor.total || 0) + L(' em ', ' on ') + melhor.dia + '</b></div>' +
+    '<svg viewBox="0 0 ' + largura + ' ' + altura + '" role="img" aria-label="' + L('Tendência de tokens no período', 'Token trend in the period') + '">' +
     '<defs><linearGradient id="area-verde" x1="0" y1="0" x2="0" y2="1">' +
     '<stop offset="0" stop-color="#7C9A7F" stop-opacity=".32"/><stop offset="1" stop-color="#7C9A7F" stop-opacity="0"/></linearGradient></defs>' +
     '<line x1="' + margem + '" y1="' + (altura - margem) + '" x2="' + (largura - margem) + '" y2="' + (altura - margem) + '"/>' +
@@ -1146,13 +1162,14 @@ $('copiar-config').addEventListener('click', async () => {
     botao.textContent = T('con.copiado');
     window.setTimeout(() => { botao.textContent = T('con.copiar'); }, 1400);
   } catch (e) {
-    recado('conexao', 'Não consegui copiar. Selecione o bloco e copie manualmente.');
+    recado('conexao', L('Não consegui copiar. Selecione o bloco e copie manualmente.',
+      'Could not copy. Select the block and copy it manually.'));
   }
 });
 
 trocarTela(new URLSearchParams(window.location.search).get('tela') || 'agora');
 
-carregarConfig().catch(() => recado('recado-prov', 'não consegui ler a configuração'));
+carregarConfig().catch(() => recado('recado-prov', L('não consegui ler a configuração', 'could not read configuration')));
 carregarCredito();
 carregarCredenciais();
 carregarJanelas();

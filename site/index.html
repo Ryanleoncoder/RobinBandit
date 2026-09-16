@@ -32,6 +32,42 @@
     .button { display:inline-flex; align-items:center; min-height:44px; padding:0 16px; border:1px solid var(--line); border-radius:8px; text-decoration:none; font-size:14px; font-weight:650; }
     .button.primary { color:#111214; background:var(--text); border-color:var(--text); } .button:hover { border-color:var(--green); }
     .screenshot { border:1px solid var(--line); border-radius:12px; overflow:hidden; background:var(--panel); } .screenshot img { width:100%; }
+    .panel-mock { border:1px solid var(--line); border-radius:18px; overflow:hidden; background:linear-gradient(145deg,#0d0d10,#080809); box-shadow:0 24px 90px rgba(0,0,0,.34); }
+    .mock-top { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:14px 16px; border-bottom:1px solid var(--line); color:var(--muted); font:12px/1.3 var(--mono); }
+    .mock-top b { color:var(--text); letter-spacing:.06em; }
+    .mock-dot { width:8px; height:8px; border-radius:50%; background:var(--green); box-shadow:0 0 18px rgba(124,154,127,.8); }
+    .mock-body { display:grid; grid-template-columns:150px 1fr; min-height:430px; }
+    .mock-nav { padding:16px 12px; border-right:1px solid var(--line); color:var(--muted); font:11px/1.2 var(--mono); }
+    .mock-brand { display:flex; align-items:center; gap:8px; color:var(--text); font-weight:800; margin-bottom:20px; }
+    .mock-brand img { width:22px; height:22px; }
+    .mock-nav span { display:block; padding:8px 9px; border-radius:7px; margin-bottom:4px; }
+    .mock-nav .active { color:var(--text); background:#1b1b20; border-left:2px solid var(--gold); }
+    .mock-main { padding:22px; }
+    .mock-title { display:flex; align-items:start; justify-content:space-between; gap:20px; margin-bottom:18px; }
+    .mock-title h3 { margin:0 0 6px; font-size:22px; line-height:1.1; }
+    .mock-title p { margin:0; color:var(--muted); font-size:13px; }
+    .mock-mode { padding:7px 10px; border:1px solid #49634e; border-radius:99px; color:#a9c8ac; font:11px/1.2 var(--mono); white-space:nowrap; }
+    .mock-cards { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; margin-bottom:18px; }
+    .mock-card { padding:12px; border:1px solid var(--line); border-radius:10px; background:rgba(255,255,255,.018); }
+    .mock-card b { display:block; color:var(--text); font:18px/1.15 var(--mono); }
+    .mock-card span { color:var(--muted); font-size:11px; text-transform:uppercase; letter-spacing:.08em; }
+    .mock-flow { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:18px; }
+    .mock-live,.mock-usage { padding:14px; border:1px solid var(--line); border-radius:12px; background:#111115; }
+    .mock-live small,.mock-usage small { display:block; color:var(--gold); font:11px/1.2 var(--mono); text-transform:uppercase; letter-spacing:.08em; margin-bottom:8px; }
+    .mock-live strong { display:flex; align-items:center; gap:8px; font-size:15px; }
+    .mock-live img { width:18px; height:18px; }
+    .mock-live p,.mock-usage p { margin:7px 0 0; color:var(--muted); font-size:13px; }
+    .mock-table { border:1px solid var(--line); border-radius:12px; overflow:hidden; }
+    .mock-row { display:grid; grid-template-columns:28px 1.15fr 92px 1fr 74px; gap:12px; align-items:center; padding:11px 14px; border-bottom:1px solid var(--line); font:12px/1.3 var(--mono); color:var(--muted); }
+    .mock-row:last-child { border-bottom:0; }
+    .mock-row.first { background:rgba(94,122,97,.12); color:var(--text); }
+    .mock-provider { display:flex; align-items:center; gap:8px; min-width:0; }
+    .mock-provider img { width:17px; height:17px; object-fit:contain; }
+    .mock-pill { justify-self:start; padding:3px 7px; border:1px solid var(--line); border-radius:99px; font-size:10px; text-transform:uppercase; }
+    .mock-pill.ok { color:#a9c8ac; border-color:#49634e; }
+    .mock-pill.wait { color:var(--gold); border-color:#725d2c; }
+    .mock-bar { height:5px; border-radius:99px; background:#25262b; overflow:hidden; }
+    .mock-bar i { display:block; height:100%; border-radius:99px; background:var(--green); }
     .caption { margin:11px 0 0; color:var(--muted); font-size:13px; }
     .facts { display:grid; grid-template-columns:repeat(4,1fr); border-block:1px solid var(--line); }
     .fact { padding:20px 18px 20px 0; } .fact + .fact { padding-left:18px; border-left:1px solid var(--line); }
@@ -89,8 +125,8 @@
     .provider-row img[src$="groq.svg"],.provider-row img[src$="openrouter.svg"],.provider-row img[src$="ollama.svg"],.provider-row img[src$="cerebras.svg"] { filter:invert(91%) sepia(9%) saturate(413%) hue-rotate(348deg) brightness(102%); }
     .provider-note { margin-left:auto; color:var(--muted); font-size:13px; }
     footer { padding:28px 0 44px; color:var(--muted); font-size:13px; } footer .wrap { display:flex; justify-content:space-between; gap:20px; } footer a:hover { color:var(--text); }
-    @media (max-width:820px) { .links a:not(:last-child){display:none}.hero,.section-head,.quick,.feature{grid-template-columns:1fr;gap:30px}h1{max-width:15ch}.facts,.loop{grid-template-columns:1fr 1fr}.fact:nth-child(3),.step:nth-child(3){border-left:0}.fact:nth-child(n+3),.step:nth-child(n+3){border-top:1px solid var(--line)}.demo-row{grid-template-columns:18px 1fr 78px 62px}.demo-quality,.demo-why{display:none} }
-    @media (max-width:580px) { .wrap{width:min(calc(100% - 26px),var(--max))}.hero{padding:58px 0 52px}section.block{padding:66px 0}.shots,.facts,.loop{grid-template-columns:1fr}.fact+.fact,.step+.step{padding-left:0;border-left:0;border-top:1px solid var(--line)}.mode{grid-template-columns:28px 1fr;gap:10px}.mode p{grid-column:2}footer .wrap{flex-direction:column} }
+    @media (max-width:820px) { .links a:not(:last-child){display:none}.hero,.section-head,.quick,.feature{grid-template-columns:1fr;gap:30px}h1{max-width:15ch}.facts,.loop{grid-template-columns:1fr 1fr}.fact:nth-child(3),.step:nth-child(3){border-left:0}.fact:nth-child(n+3),.step:nth-child(n+3){border-top:1px solid var(--line)}.demo-row{grid-template-columns:18px 1fr 78px 62px}.demo-quality,.demo-why{display:none}.mock-body{grid-template-columns:1fr}.mock-nav{display:none}.mock-cards{grid-template-columns:1fr 1fr}.mock-flow{grid-template-columns:1fr}.mock-row{grid-template-columns:24px 1fr 78px}.mock-bar,.mock-row .mock-latency{display:none} }
+    @media (max-width:580px) { .wrap{width:min(calc(100% - 26px),var(--max))}.hero{padding:58px 0 52px}section.block{padding:66px 0}.shots,.facts,.loop,.mock-cards{grid-template-columns:1fr}.fact+.fact,.step+.step{padding-left:0;border-left:0;border-top:1px solid var(--line)}.mode{grid-template-columns:28px 1fr;gap:10px}.mode p{grid-column:2}.mock-title{display:block}.mock-mode{display:inline-flex;margin-top:12px}.mock-main{padding:16px}.mock-row{grid-template-columns:22px 1fr}.mock-pill,.mock-row .mock-calls{display:none}footer .wrap{flex-direction:column} }
   </style>
 </head>
 <body>
@@ -103,7 +139,40 @@
     <div class="wrap">
       <section class="hero">
         <div><p class="label">Local LLM router</p><h1>Choose the route. See why it changed.</h1><p class="lead">RobinBandit receives OpenAI, Responses and Anthropic-style calls, tries the providers you enabled, and keeps the decision visible in a local panel.</p><div class="actions"><a class="button primary" href="#start">Run it locally</a><a class="button" href="https://github.com/Ryanleoncoder/RobinBandit">GitHub</a></div></div>
-        <figure><div class="screenshot"><img src="imagens/painel-agora.png" alt="RobinBandit route status, live attempt, recent activity and provider queue"></div><figcaption class="caption">Live state comes from the router itself. The panel does not recompute the decision.</figcaption></figure>
+        <figure>
+          <div class="panel-mock" aria-label="Mocked RobinBandit panel with active route, usage and provider queue">
+            <div class="mock-top"><b>ROBINBANDIT</b><span class="mock-dot"></span></div>
+            <div class="mock-body">
+              <aside class="mock-nav">
+                <div class="mock-brand"><img src="robinbandit_logo1.png" alt="">RB</div>
+                <span class="active">Now</span><span>Usage</span><span>Providers</span><span>Models</span><span>Credentials</span><span>Connect</span>
+              </aside>
+              <div class="mock-main">
+                <div class="mock-title">
+                  <div><h3>Queue right now</h3><p>Normal route · adaptive mode · coding context</p></div>
+                  <span class="mock-mode">reinforced ready</span>
+                </div>
+                <div class="mock-cards">
+                  <div class="mock-card"><b>6</b><span>calls</span></div>
+                  <div class="mock-card"><b>5/6</b><span>available</span></div>
+                  <div class="mock-card"><b>81.7k</b><span>input</span></div>
+                  <div class="mock-card"><b>$0.68</b><span>reported</span></div>
+                </div>
+                <div class="mock-flow">
+                  <div class="mock-live"><small>live attempt</small><strong><img src="logos/groq.svg" alt="">groq</strong><p>Trying llama-3.3-70b after Codex requested a coding answer.</p></div>
+                  <div class="mock-usage"><small>last 30 days</small><p>429 rate limit isolated, cost reported on 23 of 30 calls.</p></div>
+                </div>
+                <div class="mock-table">
+                  <div class="mock-row first"><span>1</span><span class="mock-provider"><img src="logos/groq.svg" alt="">groq</span><span class="mock-pill ok">healthy</span><span class="mock-bar"><i style="width:94%"></i></span><span class="mock-latency">330ms</span></div>
+                  <div class="mock-row"><span>2</span><span class="mock-provider"><img src="logos/cerebras.svg" alt="">cerebras</span><span class="mock-pill ok">healthy</span><span class="mock-bar"><i style="width:88%"></i></span><span class="mock-latency">410ms</span></div>
+                  <div class="mock-row"><span>3</span><span class="mock-provider"><img src="logos/chatgpt_codex.svg" alt="">codex</span><span class="mock-pill ok">ready</span><span class="mock-bar"><i style="width:76%"></i></span><span class="mock-latency">cli</span></div>
+                  <div class="mock-row"><span>4</span><span class="mock-provider"><img src="logos/openrouter.svg" alt="">openrouter</span><span class="mock-pill wait">cooldown</span><span class="mock-bar"><i style="width:62%"></i></span><span class="mock-latency">42s</span></div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <figcaption class="caption">A mocked active panel: calls, queue, usage and cooldown visible before the docs screenshots.</figcaption>
+        </figure>
       </section>
       <div class="facts" aria-label="Project facts"><div class="fact"><b>4</b><span>normal-route modes</span></div><div class="fact"><b>41</b><span>providers in the catalog</span></div><div class="fact"><b>0</b><span>providers enabled without consent</span></div><div class="fact"><b>local</b><span>history, credentials and panel</span></div></div>
     </div>
