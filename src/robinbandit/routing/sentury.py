@@ -1,8 +1,10 @@
 import asyncio
 import contextvars
+import hashlib
 import inspect
 import logging
 import time
+from collections import OrderedDict
 from typing import Callable, Dict, List, Optional
 
 from ..catalog.profiles import preferred_model_for
@@ -43,9 +45,8 @@ _ultra_classify_provider_ctx: contextvars.ContextVar = contextvars.ContextVar(
     "sentury_ultra_classify_provider", default=None
 )
 
-# No modo Máxima, chamadas internas BARATAS (classificação/roteamento) NÃO devem
-# gastar a chave Ultra — só as LLMs gratuitas. Este contextvar suprime o Ultra
-# num escopo específico, mantendo-o ativo para o planner/responder pesados.
+# No modo Máxima, classificação e roteamento usam opções gratuitas.
+# Este contexto reserva Ultra para planejamento e resposta.
 _suppress_ultra_ctx: contextvars.ContextVar = contextvars.ContextVar(
     "sentury_suppress_ultra", default=False
 )
@@ -84,6 +85,63 @@ def active_ultra_tier() -> Optional[str]:
     return getattr(prov, "name", None)
 
 
+def ultra_capabilities() -> Optional[set]:
+    """O que a conta escolhida do request faz (`vision`, ...), ou None no
+    Router. Quem manda imagem pergunta isto para saber se a conta vê."""
+    prov = _ultra_provider_ctx.get()
+    if prov is None:
+        return None
+    return _capacidades(None, prov)
+
+
+def _capacidades(router, provider) -> set:
+    medir = getattr(router, "capabilities_of", None)
+    if callable(medir):
+        try:
+            return set(medir(provider))
+        except Exception:
+            pass
+    proprias = getattr(provider, "capabilities", None) or ()
+    if isinstance(proprias, str):
+        proprias = [proprias]
+    if not isinstance(proprias, (list, tuple, set, frozenset)):
+        return set()
+    return {str(c).strip().lower() for c in proprias if str(c).strip()}
+
+
+# A descrição de uma imagem para a conta do Dedicado que não enxerga. Um turno
+# chama a cadeia várias vezes com o mesmo histórico: sem guardar, a mesma
+# imagem seria descrita a cada chamada.
+_DESCRICOES: "OrderedDict[str, str]" = OrderedDict()
+_DESCRICOES_TETO = 32
+_PEDIDO_DE_DESCRICAO = (
+    "Outro modelo vai responder a pessoa sem ver as imagens abaixo; você é os olhos dele. Descreva cada "
+    "imagem com fidelidade: o que é, todo texto legível (transcrito), números, tabelas, código, gráficos, "
+    "rostos e objetos, cores e posição quando importarem. Não responda o pedido da pessoa, só descreva o "
+    "que ajuda a responder. Não invente o que não aparece; se algo estiver ilegível, diga."
+)
+
+
+def _imagens_da_mensagem(mensagem: Dict) -> List[str]:
+    urls = [str((i or {}).get("data_url") or "") for i in (mensagem.get("imagens") or [])]
+    conteudo = mensagem.get("content")
+    if isinstance(conteudo, list):
+        for parte in conteudo:
+            if isinstance(parte, dict) and str(parte.get("type") or "").startswith("image"):
+                url = (parte.get("image_url") or {}).get("url") if isinstance(parte.get("image_url"), dict) \
+                    else parte.get("image_url") or parte.get("url")
+                urls.append(str(url or ""))
+    return [u for u in urls if u]
+
+
+def _texto_da_mensagem(mensagem: Dict) -> str:
+    conteudo = mensagem.get("content")
+    if isinstance(conteudo, list):
+        return "\n".join(str(p.get("text") or "") for p in conteudo
+                         if isinstance(p, dict) and p.get("type") == "text").strip()
+    return str(conteudo or "")
+
+
 def use_ultra_provider(provider):
     """Ativa o modo Ultra para o request atual. Devolve um token; passe-o para
     clear_ultra_provider() no finally. `provider` deve ter a mesma interface dos
@@ -112,10 +170,7 @@ def clear_ultra_classify_provider(token) -> None:
 
 
 def classify_error(exc: Exception) -> str:
-    """Classifica o erro do provedor para decidir o retry (padrão Hermes):
-    credit (402/crédito esgotado) = fora por MUITO tempo (dinheiro acabou, só
-    volta no ciclo de billing); rate_limit (429) merece espera+retry; auth não
-    adianta insistir; o resto cascateia direto."""
+    """Distingue cota, crédito, autenticação e erros transitórios para retry."""
     s = str(exc).lower()
     # Crédito/billing esgotado (HF $0.10, DeepInfra/Fireworks pay-per-use). Vem
     # ANTES do 429 porque às vezes a mensagem também cita "quota".
@@ -133,6 +188,7 @@ def classify_error(exc: Exception) -> str:
 
 
 from .chain import ChainProvider as _ChainBase, _somar as _somar_uso
+from .chain import anotar_resposta as _anotar_resposta
 
 _exigencias = _ChainBase.exigencias
 _para_provedor = _ChainBase.para_provedor
@@ -224,6 +280,21 @@ class ChainProvider:
         self._last_tools_ctx.set(value)
 
     @property
+    def supports_tools(self) -> bool:
+        """Se QUEM VAI RESPONDER devolve chamada estruturada.
+
+        O `complete` desta cadeia sempre tem `tools=`, entao a assinatura dizia
+        sim para qualquer turno. Com uma conta escolhida no painel e ela que
+        responde, e a resposta tem de ser a dela: o Claude Code no Dedicado
+        caia no passo unico e o plano em texto virava resposta final."""
+        from .chain import suporta_ferramentas
+
+        escolhido = _ultra_provider_ctx.get()
+        if escolhido is not None and not _suppress_ultra_ctx.get():
+            return suporta_ferramentas(escolhido)
+        return any(suporta_ferramentas(p) for p in self.providers)
+
+    @property
     def preferred_model_override(self):
         return self._preferred_model_ctx.get()
 
@@ -283,6 +354,16 @@ class ChainProvider:
         if override and not ultra_active:
             selector = getattr(self.router, "selection", None)
             route_selection = selector("reforçado", override) if callable(selector) else None
+
+        # Dedicado com imagem e a conta escolhida não enxerga: o Router tiraria
+        # a conta do turno e, estrito, ninguém responderia. Quem enxerga no
+        # Router descreve a imagem e a resposta continua sendo da conta.
+        exigidas = _exigencias(messages)
+        if (exigidas and selected is not None and getattr(route_selection, "mode", None) == "strict"
+                and not exigidas <= _capacidades(self.router, selected)):
+            messages = await self._descrever_imagens(
+                messages, [p for p in candidates if p is not selected], complexity, profile,
+            )
 
         try:
             ordered = self.router.order(
@@ -393,6 +474,18 @@ class ChainProvider:
                     quota = getattr(provider, "last_quota", None)
                     if isinstance(quota, dict):
                         self.router.record_quota(pname, quota.get("rpm"), quota.get("rpd"))
+                    # O unico ponto por onde TODA resposta do turno passa. Ver
+                    # `chain.anotar_resposta`: sem `tool_calls` aqui, repetir um
+                    # turno nativo mediria o vazio.
+                    _anotar_resposta(
+                        texto=result,
+                        tool_calls=self.last_tool_calls,
+                        modelo=self.last_model,
+                        provedor=self.last_provider,
+                        complexidade=complexity,
+                        perfil=profile,
+                        ms=int(latency_ms),
+                    )
                     return result
                 except Exception as exc:
                     last_error = exc
@@ -417,4 +510,98 @@ class ChainProvider:
                 finally:
                     if callable(end):
                         end(pname)
-        raise RuntimeError(f"Todos os provedores de LLM falharam: {last_error}")
+        raise RuntimeError(f"Todos os provedores de LLM falharam: {last_error}") from last_error
+
+    async def _descrever_imagens(self, messages: List[Dict], candidatos: List, complexity: Optional[str],
+                                 profile: Optional[str]) -> List[Dict]:
+        """As mensagens com as imagens trocadas pela descrição de quem enxerga
+        no Router. Sem ninguém que enxergue, erro que diz o porquê."""
+        selector = getattr(self.router, "selection", None)
+        livre = selector("router") if callable(selector) else None
+        try:
+            enxergam = self.router.order(candidatos, complexity, profile=profile, selection=livre,
+                                         requires={"vision"})
+        except TypeError:
+            enxergam = [p for p in candidatos if "vision" in _capacidades(self.router, p)]
+        if not enxergam:
+            raise RuntimeError(
+                "O modelo escolhido no Dedicado não lê imagem, e nenhum provedor do Router lê para descrevê-la.")
+        saida: List[Dict] = []
+        for mensagem in messages:
+            urls = _imagens_da_mensagem(mensagem)
+            if not urls:
+                saida.append(mensagem)
+                continue
+            texto = _texto_da_mensagem(mensagem)
+            descricao, quem = await self._descrever(
+                _PEDIDO_DE_DESCRICAO,
+                f"Pedido da pessoa, para você saber o que importa: {texto or '(sem texto)'}",
+                urls, enxergam, complexity, profile,
+            )
+            nova = {k: v for k, v in mensagem.items() if k != "imagens"}
+            nova["content"] = (
+                (texto + "\n\n" if texto else "")
+                + f"[{len(urls)} imagem(ns) anexada(s). O modelo escolhido não lê imagem; "
+                + f"{quem} descreveu:]\n{descricao}"
+            )
+            saida.append(nova)
+        return saida
+
+    async def descrever_com_quem_ve(self, pedido: str, urls: List[str],
+                                    complexity: Optional[str] = None) -> Optional[str]:
+        """Só a descrição, por quem enxerga no Router, fora da conta escolhida.
+        Para quem precisa descrever uma imagem (o print do computer use) com o
+        Dedicado ativo e a conta dele sem visão. None sem ninguém que enxergue."""
+        candidatos = [p for p in self.providers
+                      if getattr(p, "name", type(p).__name__) not in {"ultra", "ultra_max"}]
+        selector = getattr(self.router, "selection", None)
+        livre = selector("router") if callable(selector) else None
+        try:
+            enxergam = self.router.order(candidatos, complexity, selection=livre, requires={"vision"})
+        except TypeError:
+            enxergam = [p for p in candidatos if "vision" in _capacidades(self.router, p)]
+        if not enxergam:
+            return None
+        try:
+            descricao, _quem = await self._descrever("", pedido, urls, enxergam, complexity, None)
+        except RuntimeError:
+            return None
+        return descricao
+
+    async def _descrever(self, sistema: str, texto: str, urls: List[str], enxergam: List,
+                         complexity: Optional[str], profile: Optional[str]):
+        chave = hashlib.sha256("\n".join([sistema, texto, *urls]).encode("utf-8")).hexdigest()
+        if chave in _DESCRICOES:
+            _DESCRICOES.move_to_end(chave)
+            return _DESCRICOES[chave]
+        pedido = _para_provedor([
+            *([{"role": "system", "content": sistema}] if sistema else []),
+            {"role": "user", "content": texto,
+             "imagens": [{"nome": f"imagem-{i + 1}", "data_url": url} for i, url in enumerate(urls)]},
+        ])
+        ultimo = None
+        for provider in enxergam:
+            pname = getattr(provider, "name", type(provider).__name__)
+            inicio = time.perf_counter()
+            try:
+                resposta = str(await provider.complete(pedido, 0.1) or "").strip()
+                if not resposta:
+                    raise RuntimeError("descrição vazia")
+            except Exception as exc:
+                ultimo = exc
+                failure = getattr(self.router, "record_failure", None)
+                if callable(failure):
+                    failure(pname, classify_error(exc), complexity=complexity, detail=str(exc), profile=profile)
+                logger.warning("Descrição de imagem por %s falhou: %s", pname, exc)
+                continue
+            success = getattr(self.router, "record_success", None)
+            if callable(success):
+                success(pname, (time.perf_counter() - inicio) * 1000.0,
+                        model=getattr(provider, "last_model", None), complexity=complexity, profile=profile)
+            _somar_uso(getattr(provider, "last_usage", None))
+            quem = getattr(provider, "last_model", None) or pname
+            _DESCRICOES[chave] = (resposta, quem)
+            while len(_DESCRICOES) > _DESCRICOES_TETO:
+                _DESCRICOES.popitem(last=False)
+            return resposta, quem
+        raise RuntimeError(f"Ninguém no Router conseguiu descrever a imagem para o Dedicado: {ultimo}") from ultimo

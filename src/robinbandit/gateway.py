@@ -60,6 +60,9 @@ class RobinGateway:
             requires=requires,
         )
 
+    def capabilities_of(self, provider: Any) -> set:
+        return self.router.capabilities_of(provider)
+
     def record_success(self, key: str, latency_ms: float, model: Optional[str] = None,
                        complexity: Optional[str] = None,
                        profile: Optional[str] = None, *,
@@ -125,8 +128,7 @@ class RobinGateway:
         self.router.load(data)
 
     # --- Persistencia do aprendizado ---------------------------------------
-    # O host nao precisa saber ONDE isto mora. Antes ele sabia, e o resultado
-    # foi o aprendizado depender de um Redis que a instalacao local nao tem.
+    # O roteador cuida da própria persistência sem impor um serviço ao host.
 
     def gravar_aprendizado(self) -> bool:
         """Guarda o que foi medido nesta maquina."""

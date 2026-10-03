@@ -13,8 +13,8 @@ from .selection import coerce_selection
 from .erros import cooldown_de  # noqa: E402  (re-export: o router e quem aplica)
 
 
-# Peak EWMA: pico entra rápido, recuperação decai devagar.
-# _LAT_RECOVERY é o peso da amostra nova SÓ na descida.
+# A latência registra picos de imediato e suaviza a recuperação.
+# _LAT_RECOVERY define o peso da nova amostra na descida.
 _LAT_RECOVERY = 0.3
 _LAT_FLOOR_MS, _LAT_CEIL_MS = 150.0, 8000.0
 
@@ -489,6 +489,19 @@ class ProviderRouter:
             bruto = [bruto]
         return {str(item).strip().lower() for item in bruto if str(item).strip()}
 
+    def capabilities_of(self, provider: Any) -> set:
+        """O que o provedor faz: o declarado no YAML pelo nome e o que ele
+        mesmo declara (o grupo do Reforçado/Dedicado, que não tem linha no
+        YAML, declara o das contas dele)."""
+        proprias = getattr(provider, "capabilities", None) or ()
+        if isinstance(proprias, str):
+            proprias = [proprias]
+        if not isinstance(proprias, (list, tuple, set, frozenset)):
+            proprias = ()
+        return self._capabilities(getattr(provider, "name", type(provider).__name__)) | {
+            str(item).strip().lower() for item in proprias if str(item).strip()
+        }
+
     def order(self, providers: List[Any], context: Optional[str] = None,
               selection=None, requires: Optional[Any] = None) -> List[Any]:
         """Ordena os provedores por score (melhor primeiro). Quem está em
@@ -505,7 +518,7 @@ class ProviderRouter:
         if exigidas:
             capazes = [
                 p for p in providers
-                if exigidas <= self._capabilities(getattr(p, "name", type(p).__name__))
+                if exigidas <= self.capabilities_of(p)
             ]
             # Sem ninguém capaz, o host precisa decidir o que dizer — melhor
             # devolver vazio do que fingir que qualquer um serve.

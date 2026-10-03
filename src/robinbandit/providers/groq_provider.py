@@ -6,6 +6,7 @@ import httpx
 
 from ..accounts.credentials import KeyRotator, parse_keys, is_quota_error
 from ..catalog.token_budget import model_token_budget
+from .recusa import RecusaDoModelo, recusa_openai
 
 logger = logging.getLogger(__name__)
 
@@ -40,9 +41,8 @@ def _normalizar_usage(bruto):
 
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 
-# No Groq o effort aceito varia POR MODELO (console.groq.com/docs/reasoning).
-# Mandar valor incompatível custa um retry — justo a latência que queremos
-# cortar. Modelo fora da tabela: não manda nada.
+# O esforço aceito pela Groq depende do modelo.
+# Modelos sem configuração conhecida não recebem esse parâmetro.
 GROQ_REASONING_EFFORTS = {
     "openai/gpt-oss-20b": {"low", "medium", "high"},
     "openai/gpt-oss-120b": {"low", "medium", "high"},
@@ -74,7 +74,7 @@ class GroqProvider:
         self.name = "groq"
         # Pool de credenciais: 1 chave ou CSV ("k1,k2,k3").
         self._keys = KeyRotator(parse_keys(api_key))
-        self.models = models or ["llama-3.1-8b-instant"]
+        self.models = models or ["openai/gpt-oss-20b"]
         self.last_model: Optional[str] = None
         self.last_usage = None
         self.last_reasoning_summary: Optional[str] = None
@@ -133,12 +133,17 @@ class GroqProvider:
                         data = response.json()
                         self.last_usage = _normalizar_usage(data.get("usage"))
                         message = data["choices"][0]["message"]
+                        recusa = recusa_openai(data["choices"][0])
+                        if recusa is not None:
+                            raise RecusaDoModelo(f"groq:{model}", recusa)
                         self.last_tool_calls = message.get("tool_calls")
                         from .openai_compat import _extract_reasoning
                         self.last_reasoning_summary = _extract_reasoning(message)
                         self.last_model = f"groq:{model}"
                         logger.info("Groq respondeu com o modelo %s", model)
                         return message.get("content") or ""
+                    except RecusaDoModelo:
+                        raise
                     except Exception as exc:
                         self.model_failures.append(f"groq:{model}")
                         logger.warning("Groq model %s failed: %s", model, exc)
@@ -149,7 +154,7 @@ class GroqProvider:
                         continue
                 if cota_na_chave and self._keys.has_multiple:
                     continue
-        raise RuntimeError(f"Todos os modelos/chaves Groq falharam: {last_error}")
+        raise RuntimeError(f"Todos os modelos/chaves Groq falharam: {last_error}") from last_error
 
 
 class FallbackProvider:

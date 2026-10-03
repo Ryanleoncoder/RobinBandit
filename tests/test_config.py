@@ -210,6 +210,9 @@ def test_conta_escolhida_muda_o_dedicado_em_runtime(tmp_path, monkeypatch):
     assert provider.name == "ultra_max"
     assert provider.providers[0].models == ["modelo-dedicado"]
     assert "segredo-comprido" not in repr(provider)
+    # A conta roda com o nome dela; o que o provedor dela declara no YAML vai
+    # junto, ou o Router tiraria o Dedicado de todo turno com imagem.
+    assert provider.capabilities == config.provider_capabilities("openrouter") == {"vision"}
 
 
 def test_modos_exigem_modelos_e_aceitam_varios_provedores(tmp_path, monkeypatch):

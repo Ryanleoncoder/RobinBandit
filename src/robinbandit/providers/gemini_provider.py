@@ -5,6 +5,7 @@ import httpx
 
 from ..accounts.credentials import KeyRotator, parse_keys, is_quota_error
 from ..catalog.token_budget import model_token_budget
+from .recusa import RecusaDoModelo, recusa_gemini
 
 logger = logging.getLogger(__name__)
 
@@ -32,10 +33,8 @@ def _usage_gemini(data: Dict) -> Optional[Dict[str, int]]:
 
 GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 
-# Cota diária (RPD) e qualidade relativa por modelo, do painel de cotas do free
-# tier. RPD alto = workhorse (rotina, sem medo de gastar); RPD baixo = reservar
-# pro CRITICAL. Os "premium" (2.5/3.5-flash) têm SÓ 20/dia — não dá pra torrar
-# em bate-papo. Modelos fora do mapa usam o padrão (ordem configurada).
+# Modelos com cota diária maior atendem rotina; os mais escassos ficam
+# disponíveis para pedidos complexos. Fora do mapa, vale a ordem configurada.
 _GEMINI_RPD = {
     "gemma-4-31b-it": 1500, "gemma-4-26b-a4b-it": 1500,
     "gemini-3.1-flash-lite": 500,
@@ -72,6 +71,8 @@ def _split_messages(messages: List[Dict[str, str]]) -> Tuple[str, List[Dict]]:
         if role == "system":
             system_parts.append(content if isinstance(content, str) else _somente_texto(content))
             continue
+        if role == "tool" or m.get("tool_calls"):
+            content = _texto_nativo(m)
         g_role = "model" if role == "assistant" else "user"
         partes = _partes(content)
         if contents and contents[-1]["role"] == g_role:
@@ -79,6 +80,18 @@ def _split_messages(messages: List[Dict[str, str]]) -> Tuple[str, List[Dict]]:
         else:
             contents.append({"role": g_role, "parts": partes})
     return "\n\n".join(system_parts), contents
+
+
+def _texto_nativo(m: Dict[str, Any]) -> str:
+    """Chamada de ferramenta e resposta `tool` viram texto para quem nao fala o
+    formato nativo; mensagem vazia com `tool_calls` seria recusada."""
+    if m.get("role") == "tool":
+        return "[resultado de ferramenta]\n" + str(m.get("content") or "")
+    texto = str(m.get("content") or "")
+    for call in m.get("tool_calls") or []:
+        fn = (call or {}).get("function") or {}
+        texto += ("\n" if texto else "") + f"(chamei {fn.get('name')} com {fn.get('arguments') or '{}'})"
+    return texto
 
 
 def _somente_texto(content: Any) -> str:
@@ -120,6 +133,52 @@ def _partes(content: Any) -> List[Dict]:
     return partes or [{"text": ""}]
 
 
+# Palavras de JSON Schema que a OpenAI aceita e o Gemini recusa. Uma unica
+# chave estranha derruba a requisicao inteira com 400, entao a peneira e
+# por lista do que PASSA, nao do que sai.
+_SCHEMA_PERMITIDO = frozenset({
+    "type", "description", "enum", "items", "properties", "required",
+    "nullable", "format",
+})
+
+
+def _schema_para_gemini(schema: Any) -> Any:
+    """O mesmo esquema, sem o que o Gemini nao conhece."""
+    if isinstance(schema, list):
+        return [_schema_para_gemini(item) for item in schema]
+    if not isinstance(schema, dict):
+        return schema
+    limpo: Dict[str, Any] = {}
+    for chave, valor in schema.items():
+        if chave not in _SCHEMA_PERMITIDO:
+            continue
+        if chave == "properties" and isinstance(valor, dict):
+            limpo[chave] = {k: _schema_para_gemini(v) for k, v in valor.items()}
+        elif chave == "items":
+            limpo[chave] = _schema_para_gemini(valor)
+        else:
+            limpo[chave] = valor
+    return limpo
+
+
+def _ferramentas_para_gemini(tools: Any) -> Optional[List[Dict[str, Any]]]:
+    """Esquemas no formato OpenAI viram `function_declarations`."""
+    declaracoes: List[Dict[str, Any]] = []
+    for ferramenta in (tools or []):
+        fn = (ferramenta or {}).get("function") if isinstance(ferramenta, dict) else None
+        if not isinstance(fn, dict) or not fn.get("name"):
+            continue
+        declaracao: Dict[str, Any] = {"name": str(fn["name"])}
+        if fn.get("description"):
+            declaracao["description"] = str(fn["description"])[:1000]
+        parametros = _schema_para_gemini(fn.get("parameters") or {})
+        # Funcao sem parametro tem que ir sem a chave: `{}` vazio e recusado.
+        if parametros.get("properties"):
+            declaracao["parameters"] = parametros
+        declaracoes.append(declaracao)
+    return [{"function_declarations": declaracoes}] if declaracoes else None
+
+
 class GeminiProvider:
     """Provedor da API Gemini (Google AI). Mesmo contrato de `complete` dos
     outros provedores — o Harness não muda em nada. Pensado como fallback do
@@ -134,6 +193,7 @@ class GeminiProvider:
         self.last_model: Optional[str] = None
         self.last_reasoning_summary: Optional[str] = None
         self.last_usage: Optional[Dict[str, int]] = None
+        self.last_tool_calls: Optional[List[Dict[str, Any]]] = None
 
     @staticmethod
     def _extract_parts_payload(data: Dict) -> Tuple[str, Optional[str]]:
@@ -156,7 +216,22 @@ class GeminiProvider:
         thought_summary = "\n\n".join(thought_parts).strip() or None
         return visible_text, thought_summary
 
-    def _build_payload(self, messages: List[Dict[str, str]], temperature: float, include_thoughts: bool = True) -> Dict:
+    @staticmethod
+    def _extract_tool_calls(data: Dict) -> List[Dict[str, Any]]:
+        """`functionCall` do Gemini no formato que o harness ja entende."""
+        candidate = ((data.get("candidates") or [{}])[0] or {})
+        chamadas: List[Dict[str, Any]] = []
+        for part in ((candidate.get("content") or {}).get("parts") or []):
+            fc = part.get("functionCall") if isinstance(part, dict) else None
+            if not isinstance(fc, dict) or not fc.get("name"):
+                continue
+            chamadas.append({"function": {
+                "name": str(fc["name"]),
+                "arguments": fc.get("args") or {},
+            }})
+        return chamadas
+
+    def _build_payload(self, messages: List[Dict[str, str]], temperature: float, include_thoughts: bool = True, tools: Any = None) -> Dict:
         system_instruction, contents = _split_messages(messages)
         # Sem responseMimeType: o mesmo provider serve ao PLANNER (que precisa de
         # JSON, guiado pelo prompt) e ao RESPONDER (texto puro). Forçar JSON aqui
@@ -176,21 +251,26 @@ class GeminiProvider:
         }
         if system_instruction:
             payload["system_instruction"] = {"parts": [{"text": system_instruction}]}
+        declaradas = _ferramentas_para_gemini(tools)
+        if declaradas:
+            payload["tools"] = declaradas
         return payload
 
     async def complete(self, messages: List[Dict[str, str]], temperature: float = 0.2, complexity: Optional[str] = None,
                        preferred_model: Optional[str] = None,
-                       strict_model: bool = False) -> str:
+                       strict_model: bool = False, tools: Any = None) -> str:
         is_classify = (complexity or "").upper() == "CLASSIFY"
-        payload = self._build_payload(messages, temperature, include_thoughts=not is_classify)
+        payload = self._build_payload(
+            messages, temperature, include_thoughts=not is_classify, tools=tools,
+        )
+        self.last_tool_calls = None
         last_error: Optional[Exception] = None
         self.last_reasoning_summary = None
         self.last_model = None
         self.last_attempted_model = None
         self.model_failures = []
 
-        # Troca inteligente: ordena por complexidade + cota (RPD). Rotina vai nos
-        # workhorses de RPD alto (gemma/flash-lite); CRITICAL usa os melhores.
+        # Ordena por complexidade e cota diária para preservar modelos escassos.
         models_to_try = _order_gemini_models(list(self.models), complexity)
         # Perfil (ex.: coding → antigravity): tenta o modelo preferido PRIMEIRO,
         # mesmo que não esteja em GEMINI_MODELS (é um id válido da API). Se der
@@ -225,14 +305,24 @@ class GeminiProvider:
                         response.raise_for_status()
                         data = response.json()
                         self.last_usage = _usage_gemini(data)
+                        recusa = recusa_gemini(data)
+                        if recusa is not None:
+                            raise RecusaDoModelo(f"gemini:{model}", recusa)
                         visible_text, thought_summary = self._extract_parts_payload(data)
                         if thought_summary:
                             self.last_reasoning_summary = thought_summary[:2400]
                         self.last_model = f"gemini:{model}"
+                        self.last_tool_calls = self._extract_tool_calls(data) or None
                         logger.info("Gemini respondeu com o modelo %s", model)
                         if visible_text:
                             return visible_text
+                        # Uma resposta composta apenas de ferramenta não tem
+                        # parte de texto, e isso é válido neste caminho.
+                        if self.last_tool_calls:
+                            return ""
                         return data["candidates"][0]["content"]["parts"][0]["text"]
+                    except RecusaDoModelo:
+                        raise
                     except Exception as exc:
                         self.model_failures.append(f"gemini:{model}")
                         logger.warning("Gemini model %s failed: %s", model, exc)
@@ -243,4 +333,4 @@ class GeminiProvider:
                         continue
                 if cota_na_chave and self._keys.has_multiple:
                     continue
-        raise RuntimeError(f"Todos os modelos/chaves Gemini falharam: {last_error}")
+        raise RuntimeError(f"Todos os modelos/chaves Gemini falharam: {last_error}") from last_error

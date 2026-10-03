@@ -3,8 +3,8 @@
 Ter várias chaves no mesmo provedor significa coisas diferentes conforme o
 custo:
 
-- Num provedor **grátis**, duas chaves multiplicam a cota. É o objetivo.
-- Num provedor **misto ou pago**, duas chaves na MESMA variável são um
+- Num provedor grátis, duas chaves multiplicam a cota.
+- Num provedor misto ou pago, duas chaves na mesma variável são um
   problema silencioso: o rodízio não sabe qual delas é a paga, então não dá
   para reservar a paga para o tier caro nem para dizer qual conta gastou.
 
@@ -85,11 +85,33 @@ def diagnosticar(config: Any, settings: Any, contas: List[Dict[str, Any]] | None
     for conta in contas or []:
         variavel = str(conta.get("key_env") or "").strip()
         if variavel and not conta.get("configurada") and conta.get("auth_type") != "codex_cli":
+            # Conta sem chave nao e problema: e conta desligada, igual ao
+            # provedor cuja variavel nao existe no ambiente (acima, `info`).
+            # Marcar as duas situacoes iguais de formas diferentes enchia a
+            # tela de triangulo amarelo para quem simplesmente nao assinou
+            # aquele provedor — e aviso que aparece sempre ninguem le.
+            #
+            # A excecao e a conta PAGA que alguem DECLAROU: dizer que se paga
+            # por algo e nao por a chave e engano de configuracao. Conta paga
+            # de fabrica ou descoberta pelo provedor nao e declaracao de
+            # ninguem — numa instalacao nova eram 16 triangulos amarelos por
+            # provedores que o usuario nunca escolheu. Sem o campo (chamador
+            # antigo), vale como declarada.
+            paga = bool(conta.get("paga")) and bool(conta.get("declarada", True))
             avisos.append({
                 "provedor": str(conta.get("provider") or ""),
-                "gravidade": "atencao",
-                "titulo": f"conta '{conta.get('id')}' declarada sem chave",
-                "detalhe": f"A conta aponta para {variavel}, que ainda não tem valor no ambiente nem no cofre.",
+                "gravidade": "atencao" if paga else "info",
+                "titulo": (
+                    f"conta paga '{conta.get('id')}' sem chave"
+                    if paga else f"conta '{conta.get('id')}' fora da cadeia"
+                ),
+                "detalhe": (
+                    f"A conta esta marcada como paga e aponta para {variavel}, "
+                    "que ainda nao tem valor no ambiente nem no cofre."
+                    if paga else
+                    f"A conta fica fora da cadeia ate {variavel} existir. "
+                    "Nada a fazer se voce nao usa este provedor."
+                ),
             })
 
     return avisos

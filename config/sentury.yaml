@@ -11,4 +11,4 @@ providers:
   openrouter:
     # Sem HTTP-Referer ate existir um dominio publico atual. Este header e
     # apenas identificacao no painel; nao autentica nem altera o roteamento.
-    extra_headers: {X-OpenRouter-Title: Sentury Intelligence}
+    extra_headers: {X-OpenRouter-Title: Sentury}

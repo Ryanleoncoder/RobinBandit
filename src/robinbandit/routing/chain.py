@@ -1,5 +1,6 @@
 import asyncio
 import contextvars
+from collections import OrderedDict
 import inspect
 import logging
 import time
@@ -12,6 +13,23 @@ logger = logging.getLogger(__name__)
 # Uso agregado do turno inteiro.
 _USO_DO_TURNO: contextvars.ContextVar = contextvars.ContextVar("robin_uso_do_turno", default=None)
 
+# O que o modelo respondeu, em ordem, no turno inteiro. Mesmo molde do uso
+# acima, e pelo mesmo motivo: e o unico ponto por onde TODA chamada passa.
+# O planner, o classificador, a compactacao e o conselho sao instancias
+# diferentes de cadeia; so aqui elas se encontram.
+#
+# Guardar so o texto nao serve: em modo nativo a resposta do modelo NAO esta
+# na string devolvida, esta em `last_tool_calls`. Um registro sem isso repete
+# um turno nativo como "o modelo nao pediu ferramenta nenhuma".
+_RESPOSTAS_DO_TURNO: contextvars.ContextVar = contextvars.ContextVar(
+    "robin_respostas_do_turno", default=None,
+)
+
+# Teto por turno: um laco longo nao pode virar um registro de megabytes na
+# memoria de um request.
+MAX_RESPOSTAS = 40
+MAX_TEXTO = 200_000
+
 
 def suporta_ferramentas(provider) -> bool:
     """Diz se o adaptador preserva chamadas estruturadas de ferramenta."""
@@ -22,17 +40,96 @@ def suporta_ferramentas(provider) -> bool:
         parametros = inspect.signature(provider.complete).parameters.values()
     except (TypeError, ValueError):
         return False
-    return any(
-        parametro.name == "tools" or parametro.kind is parametro.VAR_KEYWORD
-        for parametro in parametros
-    )
+    # So o parametro com nome prova suporte. `**kwargs` aceita qualquer coisa
+    # e descarta em silencio: o provedor do Claude Code engolia `tools=`.
+    return any(parametro.name == "tools" for parametro in parametros)
+
+
+# Grude por conversa: o provedor e o modelo que responderam vao na frente nas
+# chamadas seguintes, e o grude solta quando ele falha. A mesma conversa fica
+# no mesmo modelo. Escolha explicita do painel vence o grude.
+_CONVERSA: contextvars.ContextVar = contextvars.ContextVar("robin_conversa", default="")
+_GRUDE: "OrderedDict[str, tuple]" = OrderedDict()
+_GRUDE_MAX = 500
+
+
+def iniciar_conversa(conversa: str) -> None:
+    _CONVERSA.set(str(conversa or ""))
+
+
+def grude_da_conversa() -> Optional[tuple]:
+    conversa = _CONVERSA.get()
+    return _GRUDE.get(conversa) if conversa else None
+
+
+def _grudar(provedor: str, modelo: Optional[str]) -> None:
+    conversa = _CONVERSA.get()
+    if not conversa:
+        return
+    modelo = str(modelo or "")
+    if modelo.startswith(f"{provedor}:"):
+        modelo = modelo.split(":", 1)[1]
+    _GRUDE[conversa] = (provedor, modelo)
+    _GRUDE.move_to_end(conversa)
+    while len(_GRUDE) > _GRUDE_MAX:
+        _GRUDE.popitem(last=False)
+
+
+def _soltar(provedor: str) -> None:
+    conversa = _CONVERSA.get()
+    if conversa and (_GRUDE.get(conversa) or ("",))[0] == provedor:
+        _GRUDE.pop(conversa, None)
+
+
+# Quem recusou o pedido neste turno por política de conteúdo. A cadeia passa
+# ao próximo provedor; o turno avisa a pessoa de que houve troca.
+_RECUSAS_DO_TURNO: contextvars.ContextVar = contextvars.ContextVar("robin_recusas_do_turno", default=None)
+
+
+def recusas_do_turno() -> List[Dict[str, Any]]:
+    return list(_RECUSAS_DO_TURNO.get() or [])
 
 
 def iniciar_contagem() -> None:
+    _RECUSAS_DO_TURNO.set([])
     _USO_DO_TURNO.set({
         "entrada": 0, "saida": 0, "total": 0, "cacheado": 0,
         "chamadas": 0, "custo_usd": 0.0, "chamadas_com_custo": 0,
     })
+
+
+def iniciar_gravacao() -> None:
+    """Liga a captura para este turno. Sem chamar isto, nada e guardado.
+
+    Desligado por padrao de proposito: quem grava e o turno, e um processo que
+    nunca comeca um turno (um script, um teste) nao deve acumular nada.
+    """
+    _RESPOSTAS_DO_TURNO.set([])
+
+
+def anotar_resposta(**campos: Any) -> None:
+    """Uma resposta do modelo, na ordem em que ela chegou.
+
+    A prova de falha: observabilidade que derruba o turno que ela observa e
+    pior que observabilidade nenhuma.
+    """
+    fila = _RESPOSTAS_DO_TURNO.get()
+    if fila is None or len(fila) >= MAX_RESPOSTAS:
+        return
+    try:
+        texto = campos.get("texto")
+        if isinstance(texto, str) and len(texto) > MAX_TEXTO:
+            campos["texto"] = texto[:MAX_TEXTO]
+            campos["truncado"] = True
+        fila.append(dict(campos))
+    except Exception:  # pragma: no cover - captura nunca derruba o turno
+        logger.debug("Nao consegui anotar a resposta do turno.", exc_info=True)
+
+
+def respostas_do_turno() -> Optional[List[Dict[str, Any]]]:
+    """O que o modelo respondeu neste turno, em ordem, ou None se nao grava."""
+    fila = _RESPOSTAS_DO_TURNO.get()
+    return list(fila) if fila is not None else None
 
 
 def custo_estimado(modelo, uso, catalogo=None):
@@ -110,6 +207,27 @@ def classify_error(exc: Exception) -> str:
     from .erros import classificar
 
     return classificar(exc)
+
+
+class FalhaDaCadeia(RuntimeError):
+    """Nenhum provedor respondeu, com o TIPO de cada falha.
+
+    Continua sendo `RuntimeError` para quem ja capturava assim. O tipo e o que
+    permite reagir certo: contexto estourado em todos pede compactar e tentar
+    de novo, nao "o servico caiu".
+    """
+
+    def __init__(self, mensagem: str, tipos: List[str]):
+        super().__init__(mensagem)
+        self.tipos = list(tipos)
+        self.tipo = self.tipos[-1] if self.tipos else "other"
+
+    @property
+    def da_requisicao(self) -> bool:
+        """Todos recusaram o PEDIDO: trocar de provedor nao resolve, mudar o pedido sim."""
+        from .erros import da_requisicao
+
+        return bool(self.tipos) and all(da_requisicao(t) for t in self.tipos)
 
 
 class ChainProvider:
@@ -214,6 +332,7 @@ class ChainProvider:
                 self.last_model = "cache"
                 return cached
         last_error = None
+        tipos_das_falhas: List[str] = []
         selected = coerce_selection(selection)
         self.last_model = None
         self.last_provider = None
@@ -240,6 +359,9 @@ class ChainProvider:
             raise RuntimeError(
                 f"Provedor selecionado não está disponível: {selected.provider}"
             )
+        grude = None if selected.provider else grude_da_conversa()
+        if grude:
+            ordered = sorted(ordered, key=lambda p: getattr(p, "name", type(p).__name__) != grude[0])
         for provider in ordered:
             pname = getattr(provider, "name", type(provider).__name__)
             for tentativa in range(self._RATE_LIMIT_RETRIES + 1):
@@ -264,6 +386,9 @@ class ChainProvider:
                             kwargs["preferred_model"] = selected.model
                         if "strict_model" in parametros or accepts_any:
                             kwargs["strict_model"] = selected.mode == "strict"
+                    elif (grude and pname == grude[0] and grude[1] in (getattr(provider, "models", None) or [])
+                          and ("preferred_model" in parametros or accepts_any)):
+                        kwargs["preferred_model"] = grude[1]
                     elif getattr(provider, "models", None):
                         order_models = getattr(self.router, "order_models", None)
                         if callable(order_models):
@@ -283,6 +408,8 @@ class ChainProvider:
                     for failed_model in dict.fromkeys(getattr(provider, "model_failures", []) or []):
                         self.router.record_model_failure(pname, failed_model)
                     self.router.record_success(pname, latency_ms, model=self.last_model, context=context)
+                    if not selected.provider:
+                        _grudar(pname, self.last_model)
                     quota = getattr(provider, "last_quota", None)
                     if isinstance(quota, dict):
                         self.router.record_quota(pname, quota.get("rpm"), quota.get("rpd"))
@@ -313,11 +440,29 @@ class ChainProvider:
                             duracao_ms=latency_ms,
                             motivo=tipo,
                         )
-                    if tipo == "rate_limit" and tentativa < self._RATE_LIMIT_RETRIES:
+                    from .erros import da_requisicao, transitorio
+
+                    if transitorio(tipo) and tentativa < self._RATE_LIMIT_RETRIES:
                         espera = self._RATE_LIMIT_BACKOFF * (tentativa + 1)
-                        logger.warning("Provedor %s em rate-limit (429); aguardando %.1fs e 1 retry...", pname, espera)
+                        logger.warning("Provedor %s com falha passageira (%s); aguardando %.1fs e 1 retry...",
+                                       pname, tipo, espera)
                         await asyncio.sleep(espera)
                         continue
+                    tipos_das_falhas.append(tipo)
+                    _soltar(pname)
+                    if tipo == "content_policy":
+                        recusas = _RECUSAS_DO_TURNO.get()
+                        if recusas is not None:
+                            recusas.append({"provedor": pname, "modelo": getattr(exc, "modelo", None)
+                                            or getattr(provider, "last_attempted_model", None)})
+                    if da_requisicao(tipo):
+                        # O pedido nao cabe ou nao passa AQUI; outro provedor
+                        # pode aceitar. Nada de saude nem de cooldown: este
+                        # provedor segue otimo para o proximo pedido normal, e
+                        # castiga-lo ensinaria o bandit a desconfiar dele.
+                        logger.warning("Provedor %s recusou o pedido (%s), tentando o próximo: %s",
+                                       pname, tipo, exc)
+                        break
                     self.router.record_failure(
                         pname, tipo, context=context, detail=str(exc),
                         model=None if failed_models else getattr(provider, "last_attempted_model", None),
@@ -326,4 +471,4 @@ class ChainProvider:
                     break
                 finally:
                     self.router.end(pname)
-        raise RuntimeError(f"Todos os provedores de LLM falharam: {last_error}")
+        raise FalhaDaCadeia(f"Todos os provedores de LLM falharam: {last_error}", tipos_das_falhas)

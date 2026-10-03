@@ -1,6 +1,6 @@
 """Catálogo de contas nomeadas e tiers atendidos por cada conta."""
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 if TYPE_CHECKING:
@@ -50,6 +50,11 @@ class Conta:
     # oficial e portanto não possuem API key que o Robin deva guardar.
     auth_type: str = ""
     auth_binary: str = "codex"
+    # Quem pos a conta ali: o usuario (painel, SENTURY_ACCOUNTS) ou o proprio
+    # Robin (descoberta pelo provedor do YAML, conta de fabrica). "Conta paga
+    # sem chave" so e engano quando alguem DECLAROU que paga; numa instalacao
+    # nova, as contas pagas que vem de fabrica enchiam a tela de amarelo.
+    declarada: bool = False
 
     @property
     def por_cli(self) -> bool:
@@ -99,6 +104,7 @@ class Conta:
             "por_cli": self.por_cli,
             "models": list(self.models),
             "paga": self.paga,
+            "declarada": self.declarada,
             **situacao,                   # configurada, origem, dica
         }
 
@@ -320,10 +326,11 @@ def catalogo_efetivo(
         _catalogo_do_painel(),
     ]
 
-    # Mescla contas antes de validar tiers.
-    for camada in camadas:
+    # Mescla contas antes de validar tiers. A primeira camada e a de fabrica
+    # (YAML); as outras duas sao escolha de quem usa.
+    for indice, camada in enumerate(camadas):
         for conta in camada.listar():
-            catalogo.registrar(conta)
+            catalogo.registrar(replace(conta, declarada=True) if indice > 0 else conta)
     for camada in camadas:
         for tier, conta_id in camada.tiers_declarados().items():
             if catalogo.obter(conta_id) is not None:

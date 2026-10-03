@@ -210,15 +210,42 @@ async def fetch_model_catalog(
     *,
     force: bool = False,
 ) -> Dict[str, Any]:
-    """Busca e normaliza o catalogo OpenRouter/Groq com cache de cinco minutos."""
+    """Busca o catálogo disponível do provedor, com cache de cinco minutos."""
     key = str(provider or "").strip().lower()
-    if key not in {"openrouter", "groq"}:
+    if key not in {"openrouter", "groq", "chatgpt_codex"}:
         return _fallback(config, key, "Este provedor ainda nao expoe catalogo vivo; exibindo a configuracao local.")
     cached = _CACHE.get(key)
     if not force and cached and time.time() - float(cached["fetched_at"]) < _CACHE_TTL_SECONDS:
         return {**cached, "models": [dict(item) for item in cached["models"]]}
 
     spec = dict(config.providers.get(key) or {})
+    if key == "chatgpt_codex":
+        from ..providers.codex_provider import listar_modelos_codex
+
+        binary_env = str(spec.get("binary_env") or "")
+        binary = (os.environ.get(binary_env) if binary_env else None) or (
+            getattr(settings, binary_env, None) if settings is not None and binary_env else None
+        ) or spec.get("binary") or "codex"
+        try:
+            raw_models = await listar_modelos_codex(str(binary))
+            models = [_normalizar(key, {
+                "id": item.get("model") or item.get("id"),
+                "name": item.get("displayName") or item.get("model") or item.get("id"),
+                "description": item.get("description") or "",
+                "input_modalities": item.get("inputModalities") or ["text"],
+                "output_modalities": ["text"],
+                "active": not item.get("hidden", False),
+            }) for item in raw_models]
+            models = [item for item in models if item["selectable"]]
+            if not models:
+                raise ValueError("model/list voltou vazio")
+            result = {"provider": key, "source": "live", "fetched_at": time.time(),
+                      "models": models, "warnings": []}
+            _CACHE[key] = result
+            return {**result, "models": [dict(item) for item in models]}
+        except Exception as exc:
+            return _fallback(config, key, f"Catálogo do Codex indisponível ({type(exc).__name__}); exibindo configuração local. Você ainda pode inserir um ID manualmente.")
+
     base_url = str(spec.get("base_url") or "").rstrip("/")
     api_key = _source_value(settings, str(spec.get("api_key_env") or ""))
     if key == "groq" and not api_key:

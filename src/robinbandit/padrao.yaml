@@ -59,17 +59,45 @@ routing:
   # significativa: credito vem antes de cota porque a mensagem de credito
   # esgotado as vezes tambem cita quota, e tratar dinheiro acabado como rate
   # limit faz o roteador insistir em quem nao vai voltar.
+  #
+  # Os tres primeiros sao erro DA REQUISICAO: o pedido nao cabe ou nao passa,
+  # e outro provedor pode aceitar. Nao entram na saude nem no cooldown. Vem
+  # antes da cota porque o 413 da Groq ("Request too large ... tokens per
+  # minute") traz `rate_limit_exceeded` no corpo.
+  #
+  # Codigo HTTP ("413", "500") casa como numero inteiro, nao como trecho:
+  # "Requested 10413 tokens" nao e um 413.
   erros:
     regras:
+      - tipo: request_too_large
+        quando_texto: ["413", request too large, payload too large,
+                       request entity too large]
+      - tipo: context_length
+        quando_texto: [context_length_exceeded, maximum context length,
+                       context window, prompt is too long, input token count,
+                       exceeds the maximum number of tokens, reduce the length]
+      - tipo: content_policy
+        quando_texto: [content_filter, content policy, content management policy,
+                       responsible ai, flagged by, blocked by safety,
+                       "finish_reason: safety", safety settings]
       - tipo: credit
         quando_texto: ["402", insufficient, payment required, billing,
                        out of credit, credits, exceeded your current quota,
                        not enough balance, spend limit]
       - tipo: rate_limit
         quando_texto: ["429", too many requests, rate limit, rate_limit,
-                       quota, overloaded, capacity]
+                       quota, overloaded, capacity, throttl]
       - tipo: auth
         quando_texto: ["401", "403", invalid api key, unauthorized, permission]
+      - tipo: not_found
+        quando_texto: ["404", model_not_found, model not found, no such model,
+                       does not exist, unknown model]
+      # Antes de network: "gateway timeout" tem "timeout" dentro. Transitorio:
+      # a cadeia espera e tenta de novo no mesmo provedor antes de passar.
+      - tipo: transient
+        quando_texto: ["500", "502", "503", "504", service unavailable,
+                       temporarily unavailable, bad gateway, gateway timeout,
+                       internal server error]
       - tipo: network
         quando_texto: [timeout, timed out, connect, network]
     # Segundos fora do jogo por tipo de falha. `escala` avanca um degrau a cada
@@ -79,6 +107,8 @@ routing:
         escala: [60, 120, 300]
       credit: 1800      # dinheiro acabou; so volta no ciclo de billing
       auth: 3600        # chave ruim nao melhora sozinha
+      not_found: 600    # modelo sumiu ou nome errado: configuracao
+      transient: 20     # 5xx: o servidor volta rapido ou nao volta
       network: 30
       other: 45
 
@@ -113,7 +143,7 @@ routing:
 profiles:
   classify: [groq:openai/gpt-oss-20b, gemini:gemini-2.5-flash-lite]
   chat: [groq:openai/gpt-oss-20b, gemini:gemini-2.5-flash-lite]
-  analysis: [groq:openai/gpt-oss-120b, chatgpt_codex:gpt-5.6-terra, groq:qwen/qwen3.6-27b, gemini:gemini-3.5-flash]
+  analysis: [groq:openai/gpt-oss-120b, chatgpt_codex:gpt-5.6-terra, groq:qwen/qwen3.8-27b, gemini:gemini-3.5-flash]
   artifact: [gemini:gemini-2.5-flash, chatgpt_codex:gpt-5.6-terra, groq:openai/gpt-oss-120b]
   coding: [chatgpt_codex:gpt-5.6-sol, gemini:antigravity-preview-05-2026, openrouter:openrouter/free, groq:openai/gpt-oss-120b, deepinfra:deepseek-ai/DeepSeek-V3]
   fallback: [groq:openai/gpt-oss-20b, gemini:gemini-2.5-flash-lite]
@@ -125,11 +155,11 @@ providers:
     base_url: https://api.groq.com/openai/v1
     api_key_env: GROQ_API_KEY
     models_env: GROQ_MODELS
-    models: [openai/gpt-oss-20b, qwen/qwen3.6-27b, openai/gpt-oss-120b]
+    models: [openai/gpt-oss-20b, qwen/qwen3.8-27b, openai/gpt-oss-120b]
     # A lista também filtra overrides antigos ainda presentes no ambiente.
-    disabled_models: [llama-3.1-8b-instant, llama-3.3-70b-versatile, qwen/qwen3-32b]
+    disabled_models: [llama-3.1-8b-instant, llama-3.3-70b-versatile, qwen/qwen3-32b, qwen/qwen3.6-27b]
     planner_models_env: GROQ_PLANNER_MODELS
-    planner_models: [openai/gpt-oss-120b, qwen/qwen3.6-27b, openai/gpt-oss-20b]
+    planner_models: [openai/gpt-oss-120b, qwen/qwen3.8-27b, openai/gpt-oss-20b]
     tier: 1
     quality: 0.75
     priority: 1
@@ -167,7 +197,7 @@ providers:
     base_url: https://api.cerebras.ai/v1
     api_key_env: CEREBRAS_API_KEY
     models_env: CEREBRAS_MODELS
-    models: [llama-3.3-70b, qwen-3-32b, gpt-oss-120b]
+    models: [gpt-oss-120b]
     tier: 2
     quality: 0.72
     priority: 4
@@ -245,7 +275,7 @@ providers:
     base_url: https://api.sambanova.ai/v1
     api_key_env: SAMBANOVA_API_KEY
     models_env: SAMBANOVA_MODELS
-    models: [Meta-Llama-3.3-70B-Instruct, DeepSeek-V3-0324]
+    models: [Meta-Llama-3.3-70B-Instruct]
     tier: 3
     quality: 0.82
     priority: 8
@@ -316,6 +346,8 @@ providers:
 
   claude_code:
     adapter: claude_code
+    # O print entra como imagem pelo `--input-format stream-json` do CLI.
+    capabilities: [vision]
     label: Claude Code (assinatura)
     # Sem chave de API: quem autentica e o CLI, com a conta que voce ja usa.
     # O RobinBandit nao le nem renova credencial — so chama o executavel.
@@ -694,7 +726,7 @@ providers:
     cost_class: local
     kinds: [text]
 
-  # --- Plugar um gateway de terceiros (9Router, OmniRoute, LiteLLM) ---
+  # --- Plugar um gateway de terceiros ---
   # Eles falam OpenAI num endpoint local, entao entram como mais um provedor:
   # copie um bloco `adapter: openai` acima, aponte `base_url` para o gateway,
   # liste em `models` os nomes que ELE expoe e marque `categoria: gateway`.

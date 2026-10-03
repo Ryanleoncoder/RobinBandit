@@ -54,26 +54,49 @@ class ReinforcedProvider:
             parametros = inspect.signature(provider.complete).parameters.values()
         except (TypeError, ValueError):
             return False
-        return any(
-            parametro.name == "tools"
-            or parametro.kind is inspect.Parameter.VAR_KEYWORD
-            for parametro in parametros
-        )
+        # Ver routing/chain.py: `**kwargs` nao prova suporte.
+        return any(parametro.name == "tools" for parametro in parametros)
 
     @property
     def supports_tools(self) -> bool:
         return any(self._suporta_ferramentas(provider) for provider in self.providers)
 
+    @staticmethod
+    def _capacidades(provider) -> set:
+        return {str(c).strip().lower() for c in (getattr(provider, "capabilities", None) or ()) if str(c).strip()}
+
+    @property
+    def capabilities(self) -> set:
+        """O que alguma conta do grupo faz. O grupo se chama `ultra`/`ultra_max`
+        e não tem linha no YAML: sem isto o Router achava que ele não enxerga
+        e o tirava do turno com imagem."""
+        return set().union(*(self._capacidades(p) for p in self.providers)) if self.providers else set()
+
     async def complete(self, messages, temperature: float = 0.2, **kwargs):
+        from ..routing.chain import ChainProvider as _Cadeia
+
         self.last_model = None
         self.last_provider = None
         self.last_usage = None
         self.last_quota = None
         self.model_failures = []
         ultimo_erro = None
+        # Com `tools=`, conta sem ferramenta nativa e pulada SE outra do grupo
+        # tiver. Se nenhuma tiver, pular deixava o grupo mudo — no Dedicado so
+        # com Claude Code, ninguem respondia —; entao ela e chamada sem
+        # `tools=` e o plano volta em texto.
+        alguem_usa = bool(kwargs.get("tools")) and self.supports_tools
+        # Com imagem, a conta que não enxerga fica de fora quando outra do
+        # grupo enxerga: mandar a imagem a ela só volta erro.
+        exigidas = _Cadeia.exigencias(messages)
+        alguem_ve = bool(exigidas) and exigidas <= self.capabilities
         for provider in self.providers:
-            if kwargs.get("tools") and not self._suporta_ferramentas(provider):
+            usa = self._suporta_ferramentas(provider)
+            if alguem_usa and not usa:
                 continue
+            if alguem_ve and not exigidas <= self._capacidades(provider):
+                continue
+            tira = () if usa else ("tools",)
             try:
                 parametros = inspect.signature(provider.complete).parameters
                 aceita_tudo = any(
@@ -82,7 +105,7 @@ class ReinforcedProvider:
                 )
                 extras = {
                     chave: valor for chave, valor in kwargs.items()
-                    if aceita_tudo or chave in parametros
+                    if (aceita_tudo or chave in parametros) and chave not in tira
                 }
                 resposta = await provider.complete(messages, temperature, **extras)
                 self.last_provider = getattr(provider, "name", type(provider).__name__)
@@ -100,6 +123,12 @@ class ReinforcedProvider:
                 self.model_failures.extend(
                     list(getattr(provider, "model_failures", []) or [])
                 )
+        # Recusa de conteúdo segue recusa: a cadeia a trata como defeito do
+        # pedido, não do provedor.
+        from .recusa import RecusaDoModelo
+
+        if isinstance(ultimo_erro, RecusaDoModelo):
+            raise ultimo_erro
         raise RuntimeError("nenhuma conta do Reforçado respondeu") from ultimo_erro
 
 def _source_value(settings: Any, name: str, fallback_name: str = "") -> str:
@@ -238,11 +267,10 @@ def build_provider(
             str(spec.get("api_key_fallback_env") or ""),
         )
 
-    # Provedor remoto sem segredo não entra na cadeia. Mas gateway que roda na
-    # própria máquina (Ollama, 9Router, OmniRoute, LiteLLM) não tem segredo
-    # nenhum a exigir — e alguns ainda assim querem o header preenchido. Isso
-    # era uma exceção escrita em código para o Ollama; virou declaração, senão
-    # cada gateway novo pedia uma linha nova aqui.
+    # Provedor remoto sem segredo não entra na cadeia. Gateway que roda na
+    # própria máquina (o Ollama, por exemplo) não tem segredo a exigir, e alguns
+    # ainda querem o header preenchido: por isso é declaração no YAML
+    # (`chave_opcional`), não exceção no código.
     if not api_key and base_url and spec.get("chave_opcional"):
         api_key = str(spec.get("chave_fixa") or provider_key)
     if not api_key or not configured_models:
@@ -338,7 +366,8 @@ def build_tier_provider(
 
     catalogo = catalogo_efetivo(settings, config)
     modo = "reforcado" if tier_key == "ultra" else "dedicado"
-    alvos = account_config.selecao_do_modo(modo)
+    # A foto do turno, nao o painel de agora: ver `selecao_do_turno`.
+    alvos = account_config.selecao_do_turno(modo)
     if not alvos:
         return UnavailableProvider(
             tier_key,
@@ -368,6 +397,13 @@ def build_tier_provider(
             name=runtime_name,
             api_key=conta.resolver_chave(),
         )
+        if provider is not None:
+            # O que o provedor da conta declara no YAML (`vision`, ...): a conta
+            # roda com o nome dela, que o Router não conhece.
+            try:
+                provider.capabilities = sorted(config.provider_capabilities(source_key))
+            except Exception:
+                pass
         montados.append(provider or UnavailableProvider(
             runtime_name,
             f"conta '{conta.id}' não possui credencial ou modelos válidos",

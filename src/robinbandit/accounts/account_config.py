@@ -3,6 +3,7 @@
 Segredos ficam em ``secrets.py``. Aqui entram apenas configuração declarativa:
 contas, fila do Reforçado, tiers, modelos, idioma e estratégia.
 """
+import contextvars
 import json
 import os
 import threading
@@ -290,6 +291,35 @@ def selecao_do_modo(modo: str) -> List[Dict[str, Any]]:
     """Alvos explicitamente escolhidos para o modo, em ordem de tentativa."""
     nome = _nome_do_modo(modo)
     return [dict(alvo) for alvo in carregar()["selecoes"].get(nome, [])]
+
+
+# A selecao do painel fica PRESA durante o turno e vale so no seguinte. Um
+# turno faz varias chamadas (classificador, planner, responder), e
+# `build_tier_provider` resolve a cada uma: trocar o modo no painel no meio da
+# execucao mudava o modelo entre o planner e o responder. ContextVar porque o
+# turno e uma tarefa asyncio: as chamadas dele (e as tarefas filhas) veem a
+# mesma foto, e dois turnos ao mesmo tempo nao se misturam.
+_SELECAO_DO_TURNO: contextvars.ContextVar = contextvars.ContextVar(
+    "robin_selecao_do_turno", default=None,
+)
+
+
+def congelar_selecao_do_turno():
+    """Fotografa a selecao dos dois modos. Devolve o token para soltar."""
+    foto = {modo: selecao_do_modo(modo) for modo in ("reforcado", "dedicado")}
+    return _SELECAO_DO_TURNO.set(foto)
+
+
+def soltar_selecao_do_turno(token) -> None:
+    _SELECAO_DO_TURNO.reset(token)
+
+
+def selecao_do_turno(modo: str) -> List[Dict[str, Any]]:
+    """A selecao que vale para ESTE turno: a foto, ou a do painel fora de turno."""
+    foto = _SELECAO_DO_TURNO.get()
+    if foto is None:
+        return selecao_do_modo(modo)
+    return [dict(alvo) for alvo in foto.get(_nome_do_modo(modo), [])]
 
 
 def definir_selecao_do_modo(

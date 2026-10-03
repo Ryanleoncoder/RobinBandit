@@ -11,6 +11,7 @@ from ..catalog.reasoning import (
     reasoning_control_allowed,
 )
 from ..catalog.token_budget import model_token_budget
+from .recusa import RecusaDoModelo, recusa_openai
 
 logger = logging.getLogger(__name__)
 
@@ -120,8 +121,8 @@ class OpenAICompatProvider:
     resposta em `choices[0].message.content`).
 
     Um só código cobre Cerebras, GitHub Models, Hugging Face (router), SambaNova,
-    Mistral e Cohere (endpoint de compatibilidade) — é a mesma ideia do LiteLLM:
-    o que muda entre provedores é só a URL base, a chave e a lista de modelos.
+    Mistral e Cohere (endpoint de compatibilidade): o que muda entre provedores
+    é só a URL base, a chave e a lista de modelos.
     Mesma interface do GroqProvider/OpenRouterProvider: tenta cada modelo da
     lista na ordem até um responder, e expõe `last_model` pro painel de debug.
     O `name` vira o prefixo do `last_model` (ex.: "cerebras:llama-3.3-70b") e
@@ -230,6 +231,9 @@ class OpenAICompatProvider:
                         self.last_usage = _normalizar_usage(data.get("usage"))
                         escolha = data["choices"][0]
                         message = escolha["message"]
+                        recusa = recusa_openai(escolha)
+                        if recusa is not None:
+                            raise RecusaDoModelo(f"{self.name}:{model}", recusa)
                         content = message.get("content") or ""
                         # `max_tokens` é um teto DURO: ao bater nele o modelo para
                         # no meio da frase (às vezes no meio da palavra, porque o
@@ -243,6 +247,13 @@ class OpenAICompatProvider:
                         # Resposta de tool-call nativo vem com content vazio + tool_calls:
                         # nesse caso não é erro. Captura os tool_calls pro caller ler.
                         self.last_tool_calls = message.get("tool_calls")
+                        if tools and not self.last_tool_calls and "DSML" in content:
+                            # O DeepSeek pediu a ferramenta no formato dele e quem
+                            # serviu nao converteu. Ver providers/dsml.py.
+                            from .dsml import chamadas_do_dsml
+
+                            content, extraidas = chamadas_do_dsml(content)
+                            self.last_tool_calls = extraidas or None
                         if not content.strip() and not self.last_tool_calls:
                             # "reasoning" às vezes devolve content vazio — tenta o próximo.
                             raise RuntimeError(f"modelo {model} devolveu content vazio")
@@ -253,6 +264,8 @@ class OpenAICompatProvider:
                         self.last_model = f"{self.name}:{model}"
                         logger.info("%s respondeu com o modelo %s", self.name, model)
                         return content
+                    except RecusaDoModelo:
+                        raise
                     except Exception as exc:
                         self.model_failures.append(f"{self.name}:{model}")
                         logger.warning("%s modelo %s falhou: %s", self.name, model, exc)
@@ -266,4 +279,4 @@ class OpenAICompatProvider:
                       break
                 if cota_na_chave and self._keys.has_multiple:
                     continue  # próxima chave
-        raise RuntimeError(f"Todos os modelos/chaves {self.name} falharam: {last_error}")
+        raise RuntimeError(f"Todos os modelos/chaves {self.name} falharam: {last_error}") from last_error

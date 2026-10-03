@@ -60,7 +60,9 @@ async def test_auth_nao_retenta_o_mesmo_provider(sem_espera):
 async def test_cascateia_para_outro_provider(sem_espera):
     # Se um provedor falha, a cadeia entrega via outro (a ordem varia por causa
     # do roteamento adaptativo; o que importa é que UM entrega).
-    ruim = _Prov([Exception("500 server error")], name="ruim")
+    # Falha que nao e passageira: 5xx agora espera e tenta de novo no mesmo
+    # provedor (ver test_erros_taxonomia.py), e aqui o que se prova e a cascata.
+    ruim = _Prov([Exception("400 bad request")], name="ruim")
     bom = _Prov(["fallback ok"], name="bom")
     ch = ChainProvider([ruim, bom], ProviderRouter())
     out = await ch.complete([{"role": "user", "content": "oi"}])
@@ -266,7 +268,7 @@ async def test_inflight_liberado_quando_o_provedor_levanta_typeerror(sem_espera)
 
 
 async def test_hybrid_cai_para_router_quando_escolhido_falha(sem_espera):
-    escolhido = _Prov([Exception("500 boom")], name="escolhido")
+    escolhido = _Prov([Exception("400 boom")], name="escolhido")
     fallback = _Prov(["ok pelo router"], name="fallback")
     chain = ChainProvider([fallback, escolhido], ProviderRouter())
     out = await chain.complete(
@@ -278,7 +280,7 @@ async def test_hybrid_cai_para_router_quando_escolhido_falha(sem_espera):
 
 
 async def test_strict_nao_cai_para_outro_provedor(sem_espera):
-    escolhido = _Prov([Exception("500 boom")], name="escolhido")
+    escolhido = _Prov([Exception("400 boom")], name="escolhido")
     outro = _Prov(["não deve chamar"], name="outro")
     chain = ChainProvider([outro, escolhido], ProviderRouter())
     with pytest.raises(RuntimeError):

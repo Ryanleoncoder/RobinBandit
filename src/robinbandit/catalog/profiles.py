@@ -17,12 +17,12 @@ ProfileTargets = List[Dict[str, str]]
 
 DEFAULT_PROFILE_MODELS: Dict[str, ProfileTargets] = {
     "classify": [
-        {"provider": "groq", "model": "llama-3.1-8b-instant"},
+        {"provider": "groq", "model": "openai/gpt-oss-20b"},
         {"provider": "gemini", "model": "gemini-2.5-flash-lite"},
     ],
     "analysis": [
         {"provider": "groq", "model": "openai/gpt-oss-120b"},
-        {"provider": "groq", "model": "qwen/qwen3-32b"},
+        {"provider": "groq", "model": "qwen/qwen3.8-27b"},
         {"provider": "gemini", "model": "gemini-3.5-flash"},
     ],
     "artifact": [
@@ -30,18 +30,14 @@ DEFAULT_PROFILE_MODELS: Dict[str, ProfileTargets] = {
         {"provider": "groq", "model": "openai/gpt-oss-120b"},
     ],
     "coding": [
-        # Antigravity (modelo agêntico de código do Google) como primário do
-        # perfil coding. Cota-preview pequena → ao bater 429 o roteador cai pro
-        # openrouter/free (200k de contexto). Os ids antigos do OpenRouter
-        # (qwen3-coder:free, gpt-oss-120b:free, llama-3.3-70b:free) foram
-        # aposentados: conferido contra o catálogo vivo em 2026-09-09.
+        # Se a cota do modelo principal acabar, o perfil passa ao próximo.
         {"provider": "gemini", "model": "antigravity-preview-05-2026"},
         {"provider": "openrouter", "model": "openrouter/free"},
         {"provider": "groq", "model": "openai/gpt-oss-120b"},
         {"provider": "deepinfra", "model": "deepseek-ai/DeepSeek-V3"},
     ],
     "fallback": [
-        {"provider": "groq", "model": "llama-3.1-8b-instant"},
+        {"provider": "groq", "model": "openai/gpt-oss-20b"},
         {"provider": "gemini", "model": "gemini-2.5-flash-lite"},
     ],
 }
