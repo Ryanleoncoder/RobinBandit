@@ -132,6 +132,7 @@ def codex_auth_status(binary: str = "codex", *, timeout: float = 5.0) -> CodexAu
 
 
 _NOME_DE_SERVIDOR = re.compile(r"^[A-Za-z0-9_-]+$")
+_CABECALHO_MCP = re.compile(r'^\s*\[mcp_servers\.(?:"([^"]+)"|([A-Za-z0-9_-]+))', re.MULTILINE)
 
 
 def _servidores_mcp_do_usuario() -> List[str]:
@@ -141,14 +142,23 @@ def _servidores_mcp_do_usuario() -> List[str]:
     app desktop em vez de devolver o plano ao hospedeiro. `-c mcp_servers={}`
     não esvazia a tabela (as configs se juntam), então cada um é desligado pelo nome.
     """
-    import tomllib
-
     casa = os.environ.get("CODEX_HOME") or os.path.join(os.path.expanduser("~"), ".codex")
     try:
         with open(os.path.join(casa, "config.toml"), "rb") as arquivo:
-            servidores = tomllib.load(arquivo).get("mcp_servers") or {}
-    except (OSError, ValueError):
+            bruto = arquivo.read()
+    except OSError:
         return []
+    try:
+        import tomllib
+    except ImportError:
+        # Python antes do 3.11: os nomes saem dos cabeçalhos `[mcp_servers.<nome>]`.
+        texto = bruto.decode("utf-8", errors="replace")
+        servidores = {a or b for a, b in _CABECALHO_MCP.findall(texto)}
+    else:
+        try:
+            servidores = tomllib.loads(bruto.decode("utf-8")).get("mcp_servers") or {}
+        except ValueError:
+            return []
     return sorted(nome for nome in servidores if _NOME_DE_SERVIDOR.match(str(nome)))
 
 

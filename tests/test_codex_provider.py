@@ -98,3 +98,16 @@ async def test_codex_provider_recusa_quando_cli_nao_esta_autenticado(monkeypatch
 
     with pytest.raises(RuntimeError, match="codex login"):
         await provider.complete([{"role": "user", "content": "oi"}])
+
+
+def test_servidores_mcp_lidos_sem_tomllib(tmp_path, monkeypatch):
+    import sys
+
+    from robinbandit.providers.codex_provider import _servidores_mcp_do_usuario
+
+    (tmp_path / "config.toml").write_text(
+        '[mcp_servers.node_repl]\ncommand = "x"\n[mcp_servers."tato"]\n[mcp_servers.node_repl.env]\n',
+        encoding="utf-8")
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path))
+    monkeypatch.setitem(sys.modules, "tomllib", None)
+    assert _servidores_mcp_do_usuario() == ["node_repl", "tato"]
