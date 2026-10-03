@@ -38,6 +38,15 @@ _TETO_DA_CHAMADA_S = 110.0
 # paciencia, a outra pede investigacao.
 _AVISO_DE_LENTIDAO_S = 60.0
 
+def _pasta_neutra() -> str:
+    """Onde o CLI roda. Na pasta de quem chamou, ele carregava a memória
+    automática e as instruções daquele projeto (CLAUDE.md, AGENTS.md) para
+    dentro de um turno que não é dele."""
+    pasta = os.path.join(tempfile.gettempdir(), "robinbandit-claude-code")
+    os.makedirs(pasta, exist_ok=True)
+    return pasta
+
+
 class ClaudeCodeError(RuntimeError):
     """Falha do transporte, sem incluir credencial."""
 
@@ -528,7 +537,7 @@ class ClaudeCodeProvider:
         self.binary = binary
         self.models = list(models or [])
         self.timeout = min(max(10.0, float(timeout)), _TETO_DA_CHAMADA_S)
-        self.cwd = cwd or os.getcwd()
+        self.cwd = cwd or _pasta_neutra()
         self.last_usage: Dict[str, Any] = {}
         # Lidos pela cadeia depois de cada chamada (telemetria e diagnostico).
         self.last_model: Optional[str] = None
@@ -703,6 +712,7 @@ class ClaudeCodeProvider:
                 check=False,
                 shell=False,
                 cwd=self.cwd,
+                env={**os.environ, "CLAUDE_CODE_DISABLE_AUTO_MEMORY": "1"},
             )
 
         inicio = time.monotonic()

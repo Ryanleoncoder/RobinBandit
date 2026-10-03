@@ -109,6 +109,34 @@ def test_erro_do_cli_nao_vira_resposta(monkeypatch):
         asyncio.run(provider.generate([{"role": "user", "content": "oi"}]))
 
 
+def test_cli_roda_fora_do_projeto_e_sem_memoria_automatica(monkeypatch, tmp_path):
+    """O turno do modelo não herda a memória nem as instruções da pasta de quem chamou."""
+    import os
+    import subprocess
+
+    import robinbandit.providers.claude_code_provider as ccp
+
+    vistos = {}
+
+    class Saida:
+        stdout = json.dumps({"type": "result", "subtype": "success", "result": "ok"})
+        stderr = ""
+
+    def rodar(*a, **k):
+        vistos.update(k)
+        return Saida()
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(subprocess, "run", rodar)
+    monkeypatch.setattr(ccp, "resolve_claude_binary", lambda binary="claude": "claude")
+
+    import asyncio
+
+    asyncio.run(ClaudeCodeProvider().generate([{"role": "user", "content": "oi"}]))
+    assert os.path.abspath(vistos["cwd"]) != os.path.abspath(str(tmp_path))
+    assert vistos["env"]["CLAUDE_CODE_DISABLE_AUTO_MEMORY"] == "1"
+
+
 class TestLeituraDoStream:
     """O `--output-format json` nao dava sinal de vida nenhum.
 
