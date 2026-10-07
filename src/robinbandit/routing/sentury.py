@@ -169,26 +169,10 @@ def clear_ultra_classify_provider(token) -> None:
         pass
 
 
-def classify_error(exc: Exception) -> str:
-    """Distingue cota, crédito, autenticação e erros transitórios para retry."""
-    s = str(exc).lower()
-    # Crédito/billing esgotado (HF $0.10, DeepInfra/Fireworks pay-per-use). Vem
-    # ANTES do 429 porque às vezes a mensagem também cita "quota".
-    if ("402" in s or "insufficient" in s or "payment required" in s or "billing" in s
-            or "out of credit" in s or "credits" in s or "exceeded your current quota" in s
-            or "not enough balance" in s or "spend limit" in s):
-        return "credit"
-    if "429" in s or "too many requests" in s or "rate limit" in s or "rate_limit" in s or "quota" in s:
-        return "rate_limit"
-    if "401" in s or "403" in s or "invalid api key" in s or "unauthorized" in s or "permission" in s:
-        return "auth"
-    if "timeout" in s or "timed out" in s or "connect" in s or "network" in s:
-        return "network"
-    return "other"
-
-
-from .chain import ChainProvider as _ChainBase, _somar as _somar_uso
+from .chain import ChainProvider as _ChainBase, FalhaDaCadeia, _somar as _somar_uso
 from .chain import anotar_resposta as _anotar_resposta
+from .chain import classify_error, grude_da_conversa, _anotar_o_gasto, _grudar, _soltar, _RECUSAS_DO_TURNO
+from .erros import da_requisicao, transitorio
 
 _exigencias = _ChainBase.exigencias
 _para_provedor = _ChainBase.para_provedor
@@ -407,6 +391,14 @@ class ChainProvider:
                     non_matching = [p for p in ordered if getattr(p, "name", type(p).__name__) != pref_name]
                     ordered = matching_providers + non_matching
 
+        # No Router livre, a conversa continua com quem respondeu da última vez:
+        # trocar de modelo a cada turno muda o tom e o formato no meio da conversa.
+        livre = not ultra_active and not override
+        grude = grude_da_conversa() if livre else None
+        if grude:
+            ordered = sorted(ordered, key=lambda p: getattr(p, "name", type(p).__name__) != grude[0])
+        tipos_das_falhas: List[str] = []
+
         for provider in ordered:
 
             pname = getattr(provider, "name", type(provider).__name__)
@@ -417,6 +409,8 @@ class ChainProvider:
                 pref = override_model
             elif route_selection and pname == route_selection.provider and route_selection.model:
                 pref = route_selection.model
+            elif grude and pname == grude[0] and grude[1] in (getattr(provider, "models", None) or []):
+                pref = grude[1]
             else:
                 pref = preferred_model_for(profile, pname)
             order_models = getattr(self.router, "order_models", None)
@@ -460,6 +454,7 @@ class ChainProvider:
                     # Tokens do provedor que respondeu, somados no turno.
                     self.last_usage = getattr(provider, "last_usage", None)
                     _somar_uso(self.last_usage)
+                    _anotar_o_gasto(self.last_provider, self.last_usage)
                     self.last_reasoning_summary = getattr(provider, "last_reasoning_summary", None)
                     self.last_tool_calls = getattr(provider, "last_tool_calls", None)
                     record_model_failure = getattr(self.router, "record_model_failure", None)
@@ -470,6 +465,8 @@ class ChainProvider:
                         pname, latency_ms, model=self.last_model,
                         complexity=complexity, profile=profile,
                     )
+                    if livre:
+                        _grudar(pname, self.last_model)
                     # Fase 5 — cota (quando o provedor expõe no header da resposta).
                     quota = getattr(provider, "last_quota", None)
                     if isinstance(quota, dict):
@@ -495,11 +492,26 @@ class ChainProvider:
                         for failed_model in failed_models:
                             record_model_failure(pname, failed_model)
                     tipo = classify_error(exc)
-                    if tipo == "rate_limit" and tentativa < self._RATE_LIMIT_RETRIES:
+                    if transitorio(tipo) and tentativa < self._RATE_LIMIT_RETRIES:
                         espera = self._RATE_LIMIT_BACKOFF * (tentativa + 1)
-                        logger.warning("Provedor %s em rate-limit (429); aguardando %.1fs e 1 retry...", pname, espera)
+                        logger.warning("Provedor %s com falha passageira (%s); aguardando %.1fs e 1 retry...",
+                                       pname, tipo, espera)
                         await asyncio.sleep(espera)
                         continue
+                    tipos_das_falhas.append(tipo)
+                    _soltar(pname)
+                    if tipo == "content_policy":
+                        recusas = _RECUSAS_DO_TURNO.get()
+                        if recusas is not None:
+                            recusas.append({"provedor": pname, "modelo": getattr(exc, "modelo", None)
+                                            or getattr(provider, "last_attempted_model", None)})
+                    if da_requisicao(tipo):
+                        # O pedido não cabe ou não passa aqui, e outro provedor pode
+                        # aceitar. Castigar este ensinaria o roteador a desconfiar
+                        # de um provedor bom para o próximo pedido normal.
+                        logger.warning("Provedor %s recusou o pedido (%s), tentando o próximo: %s",
+                                       pname, tipo, exc)
+                        break
                     self.router.record_failure(
                         pname, tipo, complexity=complexity,
                         detail=str(exc), profile=profile,
@@ -510,7 +522,11 @@ class ChainProvider:
                 finally:
                     if callable(end):
                         end(pname)
-        raise RuntimeError(f"Todos os provedores de LLM falharam: {last_error}") from last_error
+        # A falha também é uma resposta do turno: sem ela gravada, o replay
+        # ficava sem a resposta daquela chamada e não sabia que ali o modelo falhou.
+        _anotar_resposta(texto="", erro=str(last_error)[:500], tipos=list(tipos_das_falhas),
+                         complexidade=complexity, perfil=profile)
+        raise FalhaDaCadeia(f"Todos os provedores de LLM falharam: {last_error}", tipos_das_falhas) from last_error
 
     async def _descrever_imagens(self, messages: List[Dict], candidatos: List, complexity: Optional[str],
                                  profile: Optional[str]) -> List[Dict]:

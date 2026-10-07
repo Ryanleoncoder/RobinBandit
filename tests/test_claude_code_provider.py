@@ -207,6 +207,13 @@ def test_o_comando_pede_stream():
     assert "stream-json" in comando and "--verbose" in comando
 
 
+def test_a_chamada_nao_vira_sessao_salva_no_claude_code():
+    """Cada passo do turno aparecia como uma conversa nova na lista do Claude Code."""
+    p = claude_code_provider.ClaudeCodeProvider(name="claude_code")
+    assert "--no-session-persistence" in p._comando("", "claude-haiku-4-5")
+    assert "--no-session-persistence" in p._comando("", "claude-haiku-4-5", com_imagem=True)
+
+
 class TestFerramentasNoCLI:
     """O CLI nao aceita definicao de ferramenta, mas o agente manda `tools=`.
 

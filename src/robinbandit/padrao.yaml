@@ -154,6 +154,7 @@ providers:
     label: Groq
     base_url: https://api.groq.com/openai/v1
     api_key_env: GROQ_API_KEY
+    key_url: https://console.groq.com/keys
     models_env: GROQ_MODELS
     models: [openai/gpt-oss-20b, qwen/qwen3.8-27b, openai/gpt-oss-120b]
     # A lista também filtra overrides antigos ainda presentes no ambiente.
@@ -170,6 +171,7 @@ providers:
     capabilities: [vision]
     label: Google Gemini
     api_key_env: GEMINI_API_KEY
+    key_url: https://aistudio.google.com/apikey
     models_env: GEMINI_MODELS
     models: [gemini-2.5-flash, gemini-2.5-flash-lite]
     tier: 1
@@ -209,6 +211,7 @@ providers:
     label: OpenRouter
     base_url: https://openrouter.ai/api/v1
     api_key_env: OPENROUTER_API_KEY
+    key_url: https://openrouter.ai/keys
     models_env: OPENROUTER_MODELS
     models: [openrouter/free, deepseek/deepseek-v4-flash, deepseek/deepseek-v4-pro]
     extra_headers: {X-OpenRouter-Title: RobinBandit}

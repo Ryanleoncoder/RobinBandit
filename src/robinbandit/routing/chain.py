@@ -471,4 +471,5 @@ class ChainProvider:
                     break
                 finally:
                     self.router.end(pname)
+        anotar_resposta(texto="", erro=str(last_error)[:500], tipos=list(tipos_das_falhas))
         raise FalhaDaCadeia(f"Todos os provedores de LLM falharam: {last_error}", tipos_das_falhas)

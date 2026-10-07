@@ -316,3 +316,17 @@ async def test_reforcado_indisponivel_cai_para_router(monkeypatch, tmp_path):
         clear_ultra_provider(token)
     assert result
     assert chain.last_provider == "fallback"
+
+
+def test_descricao_diz_onde_criar_a_chave_sem_o_valor():
+    """Uma tela de primeiro acesso guia o cadastro com o nome da variável e o
+    link do provedor; o valor da chave continua fora."""
+    config = RobinConfig.from_yaml(ROOT / "config" / "sentury.yaml")
+
+    class Settings:
+        GEMINI_API_KEY = "segredo-nao-pode-sair"
+
+    gemini = next(item for item in describe_from_config(config, Settings()) if item["key"] == "gemini")
+    assert gemini["key_env"] == "GEMINI_API_KEY"
+    assert gemini["key_url"].startswith("https://")
+    assert "segredo-nao-pode-sair" not in str(gemini)

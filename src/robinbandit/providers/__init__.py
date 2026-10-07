@@ -466,6 +466,10 @@ def describe_from_config(config: RobinConfig, settings: Any = None) -> List[Dict
             "tier": tier,
             "priority": int(spec.get("priority", 99)),
             "cost_class": str(spec.get("cost_class") or ""),
+            # O nome da variável e onde criar a chave, nunca o valor: é o que
+            # uma tela de primeiro acesso precisa para guiar o cadastro.
+            "key_env": str(spec.get("api_key_env") or ""),
+            "key_url": str(spec.get("key_url") or ""),
             "enabled": spec.get("enabled") is not False,
             "disabled_reason": str(spec.get("disabled_reason") or ""),
             "configured": spec.get("enabled") is not False and (is_fallback or bool(

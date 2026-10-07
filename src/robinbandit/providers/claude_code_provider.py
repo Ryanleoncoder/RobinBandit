@@ -592,6 +592,9 @@ class ClaudeCodeProvider:
         # próprias nem herdar hooks ou instruções do projeto.
         comando += ["--tools", "", "--permission-mode", "dontAsk",
                     "--setting-sources", "", "--strict-mcp-config"]
+        # Cada chamada é um passo do turno do Sentury, não uma conversa: gravada,
+        # virava uma sessão nova na lista do Claude Code da pessoa a cada passo.
+        comando += ["--no-session-persistence"]
         if sistema_em_arquivo:
             # Substitui, nao anexa: a persona do CLI descreve ferramentas que
             # ele nao tem aqui, e o modelo continuava tentando usa-las.
