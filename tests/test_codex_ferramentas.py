@@ -1,6 +1,7 @@
 """A escolha de ferramenta volta ao hospedeiro sem execução dentro do CLI."""
 import asyncio
 import json
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -8,6 +9,8 @@ import pytest
 from robinbandit.providers.codex_provider import CodexAppServerClient
 from robinbandit.providers.codex_ferramentas import declarar, capturar
 
+
+CRIADOS = []
 
 FERRAMENTAS = [{"type": "function", "function": {"name": "ler_arquivo",
     "description": "Lê um arquivo", "parameters": {"type": "object", "properties": {"caminho": {"type": "string"}}}}}]
@@ -39,6 +42,7 @@ async def _rodar(monkeypatch, pedidos, historico=None):
     process = SimpleNamespace(stdin=Entrada(), stdout=leitor, stderr=None, returncode=0)
 
     async def criar(*args, **kwargs):
+        CRIADOS.append(kwargs)
         return process
 
     monkeypatch.setattr(asyncio, "create_subprocess_exec", criar)
@@ -97,3 +101,16 @@ def test_chamada_fora_da_declaracao_ou_da_thread_nao_e_aceita():
     assert capturar({**params, "tool": "shell"}, nomes, "t1") is None
     with pytest.raises(ValueError):
         capturar({**params, "arguments": []}, nomes, "t1")
+
+
+async def test_cli_roda_em_pasta_neutra_e_nao_a_anuncia_como_da_tarefa(monkeypatch, tmp_path):
+    """Na pasta de quem chamou, o CLI carregava o AGENTS.md dela e o modelo usava essa
+    pasta como diretório das ferramentas do hospedeiro."""
+    monkeypatch.chdir(tmp_path)
+    CRIADOS.clear()
+    _, _, enviados = await _rodar(monkeypatch, [_pedido()])
+    pasta = CRIADOS[-1]["cwd"]
+    assert pasta and Path(pasta).resolve() != tmp_path.resolve()
+    inicio = enviados[2]["params"]
+    assert inicio["cwd"] == pasta
+    assert "pasta temporária" in inicio["developerInstructions"]
