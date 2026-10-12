@@ -116,7 +116,7 @@ def resolve_claude_binary(binary: str = "claude") -> Optional[str]:
 
 
 def claude_code_auth_status(binary: str = "claude", *, timeout: float = 8.0) -> ClaudeCodeAuthStatus:
-    """Se o CLI existe e responde. Nunca abre o arquivo de credencial."""
+    """Consulta o login público do CLI sem abrir o arquivo de credencial."""
     executavel = resolve_claude_binary(binary)
     if not executavel:
         return ClaudeCodeAuthStatus(False, "claude_cli", "Claude Code CLI não instalado")
@@ -128,7 +128,7 @@ def claude_code_auth_status(binary: str = "claude", *, timeout: float = 8.0) -> 
 
     try:
         resultado = subprocess.run(
-            [executavel, "--version"],
+            [executavel, "auth", "status"],
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
@@ -139,11 +139,11 @@ def claude_code_auth_status(binary: str = "claude", *, timeout: float = 8.0) -> 
             check=False,
             shell=False,
         )
-        versao = (resultado.stdout or "").strip().splitlines()[:1]
+        autenticado = resultado.returncode == 0
         status = ClaudeCodeAuthStatus(
-            resultado.returncode == 0,
+            autenticado,
             "claude_cli",
-            versao[0] if versao else "",
+            "autenticado" if autenticado else "execute: claude auth login",
         )
     except (OSError, subprocess.SubprocessError) as exc:
         status = ClaudeCodeAuthStatus(False, "claude_cli", f"{type(exc).__name__}")

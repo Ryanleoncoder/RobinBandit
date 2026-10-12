@@ -8,7 +8,7 @@ const L = (pt, en) => IDIOMA === 'en' ? en : pt;
 
 function logo(nome) {
   const sigla = (nome || '?').slice(0, 2).toUpperCase();
-  return '<img class="logo" src="logos/' + nome + '.svg" alt="" ' +
+  return '<img class="logo" src="logos/' + nome + '.svg?tema=escuro" alt="" ' +
     'onerror="this.outerHTML=\'<span class=&quot;logo falta&quot;>' + sigla + '</span>\'">';
 }
 
@@ -169,13 +169,12 @@ let provedoresDeTodos = false;
 
 function desenharEstrategia() {
   const atual = config.estrategia;
-  $('estrategia').innerHTML = Object.keys(config.estrategias).map(id =>
-    '<label class="escolha" data-ativa="' + (id === atual) + '">' +
-    '<input type="radio" name="estrategia" value="' + id + '"' + (id === atual ? ' checked' : '') + '>' +
-    '<span><span class="titulo">' + T('prov.modo.' + id) + '</span>' +
-    '<span class="texto">' + config.estrategias[id] + '</span></span></label>').join('');
-  document.querySelectorAll('input[name=estrategia]').forEach(input =>
-    input.addEventListener('change', async () => {
+  $('estrategia').innerHTML = '<select id="modo-rota" aria-describedby="modo-descricao">' + Object.keys(config.estrategias).map(id =>
+    '<option value="' + id + '"' + (id === atual ? ' selected' : '') + '>' + T('prov.modo.' + id) + '</option>').join('') + '</select>';
+  $('modo-descricao').textContent=config.estrategias[atual] || '';
+  $('tela-provedores').querySelector('.cabeca p').textContent=T(atual==='classifier'?'prov.classificador_intro':'prov.intro');
+  $('modo-rota').addEventListener('change', async () => {
+      const input=$('modo-rota');input.disabled=true;
       try {
         await salvar('config/estrategia', { valor: input.value });
         config.estrategia = input.value;
@@ -183,15 +182,19 @@ function desenharEstrategia() {
         desenharEstrategia();
         desenharOrdemCadeia();
         desenharTiers();
+        RBClassificador.vista(input.value==='classifier');
         recado('recado-prov', L('Vale a partir da próxima chamada.', 'Applies from the next call.'));
-      } catch (e) { recado('recado-prov', e.message); }
-    }));
+      } catch (e) { desenharEstrategia();if(input.value==='classifier')RBClassificador.vista(true);recado('recado-prov', e.message); }
+    });
 }
 
 function usoCurto(uso) {
   if (!uso) return '';
   const partes = [];
   if (uso.total) partes.push(milhar(uso.total) + ' tokens');
+  if (uso.entrada != null) partes.push(milhar(uso.entrada)+L(' entrada',' input'));
+  if (uso.saida != null) partes.push(milhar(uso.saida)+L(' resposta',' response'));
+  if (uso.raciocinio != null) partes.push(milhar(uso.raciocinio)+L(' raciocínio',' thinking'));
   if (uso.custo_usd != null) partes.push(dolar(uso.custo_usd));
   return partes.join(' · ');
 }
@@ -244,12 +247,13 @@ function desenharOrdemCadeia() {
     '<p class="dica">' + T('prov.ordem.' + config.estrategia) + '</p>' +
     '<ol class="lista-cadeia">' + nomes.map((nome, i) => {
       const p = catalogo.get(nome);
-      return '<li>' + logo(nome) + '<span>' + (p.label || nome) + '</span>' +
-        '<code>' + nome + '</code><span class="mover">' +
+      return '<li data-nome="' + textoSeguro(nome) + '">' + logo(nome) + '<span>' + textoSeguro(p.label || nome) + '</span>' +
+        '<code>' + textoSeguro(nome) + '</code><span class="mover">' +
         '<button type="button" data-move="-1" data-indice="' + i + '" aria-label="' + L('Subir ', 'Move up ') + nome + '"' + (i === 0 ? ' disabled' : '') + '>↑</button>' +
         '<button type="button" data-move="1" data-indice="' + i + '" aria-label="' + L('Descer ', 'Move down ') + nome + '"' + (i === nomes.length - 1 ? ' disabled' : '') + '>↓</button>' +
         '</span></li>';
     }).join('') + '</ol>';
+  onde.querySelectorAll('[data-nome]').forEach(el => marcarBusca(el, catalogo.get(el.dataset.nome)));
   onde.querySelectorAll('[data-move]').forEach(botao => botao.addEventListener('click', async () => {
     const de = Number(botao.dataset.indice);
     const para = de + Number(botao.dataset.move);
@@ -262,6 +266,7 @@ function desenharOrdemCadeia() {
       recado('recado-prov', L('Nova ordem aplicada.', 'New order applied.'));
     } catch (e) { recado('recado-prov', e.message); }
   }));
+  aplicarBusca();
 }
 
 function desenharTiers() {
@@ -286,7 +291,6 @@ function desenharTiers() {
     // O fallback é aviso, não provedor configurável.
     .filter(p => p.nome !== 'fallback')
     // Catálogo é possibilidade; a tela abre com o que está em uso.
-    .filter(p => provedoresDeTodos || p.na_cadeia)
     .forEach(p => (porTier[p.tier] || porTier[2]).push(p));
 
   // Só tiers que recebem provedor.
@@ -299,20 +303,26 @@ function desenharTiers() {
     porTier[n].length + '</em></div><div class="grade">' +
     (porTier[n].length ? porTier[n].map(p => {
       return '<div><div class="prov' + (p.na_cadeia ? '' : ' fora') + '" draggable="true" data-prov="' + p.nome + '">' +
-        logo(p.nome) + '<span class="quem" title="' + p.label + '">' + p.nome + '</span>' +
+        logo(p.nome) + '<span class="quem" title="' + textoSeguro(p.nome) + '">' + textoSeguro(p.label || p.nome) + '</span>' +
+        '<span class="prov-status">' + (p.configurada ? L('Conexão configurada', 'Connection configured') : L('Configure a conexão', 'Set up connection')) + '</span>' +
+        '<div class="prov-acoes"><button type="button" class="configurar" data-configurar="' + textoSeguro(p.nome) + '">' + L('Configurar', 'Configure') + '</button>' +
         '<button type="button" class="liga" data-liga="' + p.nome + '" data-ligado="' + p.na_cadeia + '">' +
-        (p.na_cadeia ? L('na cadeia', 'in chain') : L('fora', 'out')) + '</button></div></div>';
+        (p.na_cadeia ? L('Desativar', 'Disable') : L('Ativar', 'Enable')) + '</button></div></div></div>';
     }).join('')
       : '<p class="vazio">' + L('vazio', 'empty') + '</p>') +
     '</div></div>').join('') : '<p class="vazio">' + T('prov.vazio') + '</p>';
 
   document.querySelectorAll('.prov').forEach(el => {
+    const item = config.provedores.find(p => p.nome === el.dataset.prov);
+    marcarBusca(el.parentElement, item, item.na_cadeia);
     el.addEventListener('dragstart', ev => {
       el.classList.add('arrastando');
       ev.dataTransfer.setData('text/plain', el.dataset.prov);
     });
     el.addEventListener('dragend', () => el.classList.remove('arrastando'));
   });
+  document.querySelectorAll('[data-configurar]').forEach(b => b.addEventListener('click', () => focarProvedor(b.dataset.configurar)));
+  aplicarBusca();
   // O último recurso não recebe arrasto.
   document.querySelectorAll('.faixa[data-tier]').forEach(faixa => {
     faixa.addEventListener('dragover', ev => { ev.preventDefault(); faixa.classList.add('alvo'); });
@@ -353,32 +363,32 @@ function desenharModelos() {
     '<button class="aba" type="button" data-todos="true" aria-pressed="' + modelosDeTodos + '">' + L('Todos do catálogo', 'Full catalog') + '</button>';
   document.querySelectorAll('[data-todos]').forEach(b => b.addEventListener('click', () => {
     modelosDeTodos = b.dataset.todos === 'true';
-    desenharModelos();
+    document.querySelectorAll('[data-todos]').forEach(el => el.setAttribute('aria-pressed', String((el.dataset.todos === 'true') === modelosDeTodos)));
+    aplicarBusca();
   }));
 
   // Provedor sem lista também precisa poder receber o primeiro modelo.
   const lista = (config.provedores || [])
     // O último recurso não tem modelo configurável.
-    .filter(p => p.nome !== 'fallback')
-    .filter(p => modelosDeTodos || p.na_cadeia);
+    .filter(p => p.nome !== 'fallback');
   $('modelos').innerHTML = lista.length ? lista.map(p => {
     const modelos = p.modelos || [];
     const linhas = modelos.length ? modelos.map((m, i) =>
       '<div class="modelo"><span class="pos">' + (i + 1) + '</span>' +
-      '<span class="nome">' + m + '</span><span class="setas">' +
-      '<button type="button" data-sobe="' + p.nome + '|' + i + '"' + (i === 0 ? ' disabled' : '') + '>&uarr;</button>' +
-      '<button type="button" data-desce="' + p.nome + '|' + i + '"' + (i === modelos.length - 1 ? ' disabled' : '') + '>&darr;</button>' +
-      '<button type="button" class="tirar" data-tira="' + p.nome + '|' + i + '" title="tirar da lista">&times;</button>' +
+      '<span class="nome">' + textoSeguro(m) + '</span><span class="setas">' +
+      '<button type="button" aria-label="' + textoSeguro(L('Subir ', 'Move up ') + m) + '" data-sobe="' + p.nome + '|' + i + '"' + (i === 0 ? ' disabled' : '') + '>&uarr;</button>' +
+      '<button type="button" aria-label="' + textoSeguro(L('Descer ', 'Move down ') + m) + '" data-desce="' + p.nome + '|' + i + '"' + (i === modelos.length - 1 ? ' disabled' : '') + '>&darr;</button>' +
+      '<button type="button" aria-label="' + textoSeguro(L('Remover ', 'Remove ') + m) + '" class="tirar" data-tira="' + p.nome + '|' + i + '">&times;</button>' +
       '</span></div>').join('')
       : '<p class="vazio">' + L('Sem lista própria: o provedor usa o modelo padrão dele.', 'No custom list: the provider uses its default model.') + '</p>';
     return '<div class="provlinha"><div class="topo">' + logo(p.nome) +
-      '<span class="quem">' + (p.label || p.nome) + '</span>' +
+      '<span class="quem">' + textoSeguro(p.label || p.nome) + '</span>' +
       '<span class="obs">' + (p.modelos_proprios ? L('ordem sua', 'your order') : L('ordem de fábrica', 'factory order')) +
       '<button type="button" class="descobrir" data-descobre="' + p.nome + '">' + L('ver o que ele tem', 'see what it has') + '</button></span></div>' +
       '<div class="modelos">' + linhas + '</div>' +
       '<div class="achados" id="achados-' + p.nome + '"></div>' +
       '<form class="somar" data-prov="' + p.nome + '">' +
-      '<input placeholder="' + L('id do modelo, como ele aparece na API', 'model id, as it appears in the API') + '" autocomplete="off" spellcheck="false">' +
+      '<input aria-label="' + textoSeguro(L('ID do modelo para ', 'Model ID for ') + (p.label || p.nome)) + '" placeholder="' + L('id do modelo, como ele aparece na API', 'model id, as it appears in the API') + '" autocomplete="off" spellcheck="false">' +
       '<button type="submit" class="acao">' + L('adicionar', 'add') + '</button></form>' +
       '</div>';
   }).join('')
@@ -387,6 +397,12 @@ function desenharModelos() {
         : L('Nenhum provedor na cadeia. Veja o catálogo inteiro acima.', 'No provider in the chain. See the full catalog above.')) + '</p>';
 
   const listaDe = nome => ((config.provedores || []).filter(p => p.nome === nome)[0] || {}).modelos || [];
+  Array.from($('modelos').querySelectorAll('.provlinha')).forEach((el, i) => marcarBusca(el, lista[i], lista[i].na_cadeia));
+  aplicarBusca();
+  lista.forEach(p => {
+    const dados = catalogosAbertos.get(p.nome);
+    if (dados) mostrarCatalogo($('achados-' + p.nome), p.nome, dados, listaDe(p.nome), id => trocarModelos(p.nome, listaDe(p.nome).concat([id])));
+  });
 
   const mover = (dados, passo) => {
     const partes = dados.split('|');
@@ -428,23 +444,7 @@ function desenharModelos() {
       b.textContent = L('perguntando…', 'asking…');
       try {
         const r = await (await fetch('modelos/' + quem)).json();
-        const achados = (r.models || r.modelos || []).map(m => m.id || m.nome || m);
-        const atual = listaDe(quem);
-        const novos = achados.filter(m => atual.indexOf(m) < 0);
-        // Escolhe sem substituir a ordem já configurada.
-        caixa.innerHTML = novos.length
-          ? '<p class="dica">' + quem + ' diz ter ' + achados.length +
-            L(' modelos. Clique para acrescentar:', ' models. Click to add:') + '</p>' +
-            novos.map(m => '<button type="button" class="achado" data-somar="' +
-              quem + '|' + m + '">+ ' + m + '</button>').join('')
-          : '<p class="dica">' + (achados.length
-              ? L('Todos os ', 'All ') + achados.length + L(' já estão na sua lista.', ' are already in your list.')
-              : quem + L(' não devolveu modelo nenhum.', ' did not return any model.')) + '</p>';
-        caixa.querySelectorAll('[data-somar]').forEach(a =>
-          a.addEventListener('click', () => {
-            const partes = a.dataset.somar.split('|');
-            trocarModelos(partes[0], listaDe(partes[0]).concat([partes[1]]));
-          }));
+        mostrarCatalogo(caixa, quem, r, listaDe(quem), id => trocarModelos(quem, listaDe(quem).concat([id])));
       } catch (e) {
         caixa.innerHTML = '<p class="dica">' + L('não consegui perguntar ao ', 'could not ask ') + quem +
           L('. Normalmente é chave faltando na tela de Credenciais.', '. Usually a key is missing in Credentials.') + '</p>';
@@ -595,6 +595,7 @@ async function carregarConfig() {
   desenharTiers();
   desenharReservados();
   desenharModelos();
+  RBClassificador.carregar(config);
 }
 
 /* — Idioma — */
@@ -647,6 +648,7 @@ async function atualizar() {
       const pedida = new URLSearchParams(window.location.search).get('ferramenta');
       desenharAbas((escolhida && escolhida.id) || pedida || (ferramentas[0] && ferramentas[0].id));
     }
+    if(!document.hidden && !$('tela-uso').classList.contains('oculto'))carregarUso();
   } catch (e) { $('pulso').textContent = L('servidor fora do ar', 'server offline'); }
 }
 
@@ -731,13 +733,13 @@ function desenharContas() {
     '<button class="aba" type="button" data-cred="true" aria-pressed="' + contasDeTodos + '">' + L('Todas', 'All') + '</button>';
   document.querySelectorAll('[data-cred]').forEach(b => b.addEventListener('click', () => {
     contasDeTodos = b.dataset.cred === 'true';
-    desenharContas();
+    document.querySelectorAll('[data-cred]').forEach(el => el.setAttribute('aria-pressed', String((el.dataset.cred === 'true') === contasDeTodos)));
+    aplicarBusca();
   }));
 
   const lista = (contas.contas || [])
     // O último recurso não tem conta própria.
-    .filter(c => c.provider !== 'fallback')
-    .filter(c => contasDeTodos || c.configurada);
+    .filter(c => c.provider !== 'fallback');
   if (!lista.length) {
     $('credenciais').innerHTML = '<p class="vazio">' + (contasDeTodos
       ? L('Nenhuma conta no catálogo.', 'No account in the catalog.')
@@ -749,28 +751,19 @@ function desenharContas() {
   lista.forEach(c => (porProvedor[c.provider] = porProvedor[c.provider] || []).push(c));
 
   $('credenciais').innerHTML = Object.keys(porProvedor).sort().map(prov =>
-    '<div class="grupo-cred"><h2>' + logo(prov) + prov + '</h2>' +
+    '<div class="grupo-cred"><h2>' + logo(prov) + textoSeguro(config?.provedores.find(p => p.nome === prov)?.label || prov) + '</h2>' +
     porProvedor[prov].map(c => {
+      const obter = enderecoSeguro(config?.provedores.find(p => p.nome === prov)?.key_url || '');
       // CLI oficial autentica fora do cofre.
-      if (c.por_cli) {
-        const qual = c.auth_type === 'codex_cli' ? 'Codex CLI' : 'Claude Code';
-        const comando = c.auth_type === 'codex_cli' ? 'codex login' : 'claude';
-        return '<div class="cred"><div class="topo">' +
-          '<span class="var">' + c.label + '</span>' +
-          '<span class="estado' + (c.configurada ? ' tem' : '') + '">' +
-          (c.configurada ? L('autenticado', 'authenticated') : L('não conectado', 'not connected')) + '</span></div>' +
-          '<p class="cli">' + L('Quem autentica é o ', 'Authentication is handled by ') + '<b>' + qual + '</b>, ' +
-          L('com a assinatura que você já usa. O RobinBandit não lê nem renova credencial. Ele só chama o executável.',
-            'with the subscription you already use. RobinBandit does not read or renew credentials. It only calls the executable.') +
-          // Mostra detalhe só quando ele acrescenta informação.
-          (c.detalhe && c.detalhe !== 'autenticado' ? ' <em>' + c.detalhe + '</em>' : '') +
-          (c.configurada ? '' : L(' Rode ', ' Run ') + '<code>' + comando + '</code>' + L(' no terminal e recarregue.', ' in the terminal and reload.')) +
-          '</p></div>';
+      if (c.por_cli || c.auth_type === 'chatgpt_oauth') {
+        return '<div class="cred"><div class="topo"><span class="var">' + textoSeguro(c.label) +
+          '</span></div><div data-login-provedor="' + textoSeguro(c.provider) + '" data-login-tipo="' + textoSeguro(c.auth_type) +
+          '" data-login-direto="' + (c.login_direto ? '1' : '0') + '"></div></div>';
       }
       // A marca de paga é da chave, não da variável inteira.
       const chaves = (c.chaves || []).map(k =>
         '<span class="chave' + (k.paga ? ' e-paga' : '') + '">' +
-        '<b' + (k.nome ? '' : ' class="anonima"') + '>' + (k.nome || L('sem nome', 'unnamed')) + '</b>' +
+        '<b' + (k.nome ? '' : ' class="anonima"') + '>' + textoSeguro(k.nome || L('sem nome', 'unnamed')) + '</b>' +
         '<span class="dica">' + k.dica + '</span>' +
         '<button type="button" class="marca-paga' + (k.paga ? '' : ' off') + '" data-paga="' +
         c.key_env + '" data-i="' + k.i + '" data-vale="' + (k.paga ? '1' : '0') +
@@ -778,17 +771,18 @@ function desenharContas() {
         '">' + L('paga', 'paid') + '</button>' +
         '<span class="acoes">' +
         '<button type="button" data-renomear="' + c.key_env + '" data-i="' + k.i +
-        '" data-nome="' + (k.nome || '') + '" title="' + L('dar um nome a esta chave', 'name this key') + '">&#9998;</button>' +
+        '" data-nome="' + textoSeguro(k.nome || '') + '" title="' + L('dar um nome a esta chave', 'name this key') + '">&#9998;</button>' +
         '<button type="button" class="apagar" data-apagar="' + c.key_env + '" data-i="' + k.i +
         '" title="' + L('remover esta chave', 'remove this key') + '">&times;</button></span>' +
         '</span>').join('');
       return '<div class="cred">' +
         '<div class="topo">' +
-        '<span class="var">' + c.key_env + '</span>' +
-        (c.label && c.label !== c.provider ? '<span class="conta-nome">' + c.label + '</span>' : '') +
+        '<span class="var">' + textoSeguro(c.key_env) + '</span>' +
+        (c.label && c.label !== c.provider ? '<span class="conta-nome">' + textoSeguro(c.label) + '</span>' : '') +
         '<span class="estado' + (c.configurada ? ' tem' : '') + '">' +
         (c.configurada ? c.origem : L('sem chave', 'no key')) + '</span>' +
         '</div>' +
+        (obter ? '<p class="obter-chave"><a href="' + textoSeguro(obter) + '" target="_blank" rel="noopener noreferrer">' + L('Obter chave no provedor', 'Get a key from the provider') + '</a></p>' : '') +
         (chaves ? '<div class="chaves">' + chaves + '</div>' : '') +
         '<form data-var="' + c.key_env + '">' +
         '<input class="valor" type="password" placeholder="' +
@@ -800,6 +794,10 @@ function desenharContas() {
         '</form></div>';
     }).join('') + '</div>').join('');
 
+  const ordenadas = Object.keys(porProvedor).sort().flatMap(p => porProvedor[p]);
+  Array.from($('credenciais').querySelectorAll('.cred')).forEach((el, i) => marcarBusca(el, ordenadas[i], ordenadas[i].configurada));
+  aplicarBusca();
+  document.querySelectorAll('[data-login-provedor]').forEach(montarLogin);
   document.querySelectorAll('#credenciais form').forEach(f =>
     f.addEventListener('submit', async ev => {
       ev.preventDefault();
@@ -886,16 +884,17 @@ function calendarioDe(dias) {
   // Alinha a grade pelo domingo da primeira semana.
   const primeiro = new Date(dias[0].dia + 'T00:00:00Z');
   const vazios = primeiro.getUTCDay();
-  const pico = Math.max(1, ...dias.map(x => x.total));
+  const metrica = dias.some(x => x.total > 0) ? 'total' : 'chamadas';
+  const pico = Math.max(1, ...dias.map(x => x[metrica] || 0));
 
   const celulas = [];
   for (let i = 0; i < vazios; i++) celulas.push('<i class="fora"></i>');
   dias.forEach(x => {
-    const n = x.total === 0 ? 0 : Math.min(4, Math.ceil(x.total / pico * 4));
+    const n = !x[metrica] ? 0 : Math.min(4, Math.ceil(x[metrica] / pico * 4));
     const quanto = x.total
       ? milhar(x.total) + L(' tokens em ', ' tokens in ') + x.chamadas + (x.chamadas === 1 ? L(' chamada', ' call') : L(' chamadas', ' calls'))
-      : L('sem uso', 'no usage');
-    celulas.push('<i data-n="' + n + '" title="' + x.dia + ': ' + quanto + '"></i>');
+      : x.chamadas ? x.chamadas + L(' chamadas; tokens não informados', ' calls; tokens not reported') : L('sem uso', 'no usage');
+    celulas.push('<i data-n="' + n + '" title="' + x.dia + ': ' + quanto + (x.chamadas_sem_uso && x.total ? L('; chamadas sem tokens: ', '; calls without token counts: ') + x.chamadas_sem_uso : '') + '"></i>');
   });
 
   // Um rótulo por mês, agrupado por colunas.
@@ -928,43 +927,54 @@ function calendarioDe(dias) {
     '<div class="legenda"><b>' + L('menos', 'less') + '</b>' +
     [0, 1, 2, 3, 4].map(n => '<i data-n="' + n + '"></i>').join('') +
     '<b style="margin-left:4px">' + L('mais', 'more') + '</b>' +
-    '<span class="fim">' + L('cada quadrado é um dia; o mais escuro é o dia em que você mais gastou',
-      'each square is one day; the darkest one is the day you spent the most') + '</span>' +
+    '<span class="fim">' + (metrica === 'total' ? L('cada quadrado é um dia; intensidade pelos tokens informados', 'each square is one day; intensity by reported tokens') : L('cada quadrado é um dia; intensidade pelas chamadas, sem estimar tokens', 'each square is one day; intensity by calls, without estimating tokens')) + '</span>' +
     '</div>';
 }
 
+let usoEmCurso = false, usoPendente = false;
 async function carregarUso() {
+  if(usoEmCurso){usoPendente=true;return;}
+  usoEmCurso=true;
+  const periodo=periodoUso;
   let d;
   desenharPeriodosUso();
-  try { d = await (await fetch('uso?dias=' + periodoUso)).json(); }
+  try {const r=await fetch('uso?dias=' + periodo);if(!r.ok)throw new Error();d=await r.json();}
   catch (e) { $('uso-calendario').textContent = L('não consegui ler o uso', 'could not read usage'); return; }
+  finally{usoEmCurso=false;if(usoPendente || periodo!==periodoUso){usoPendente=false;queueMicrotask(carregarUso);}}
+  if(periodo!==periodoUso)return;
 
   const mes = d.periodo || d.total || {};
   const tudo = d.periodo || d.total || {};
   const dias = d.calendario || [];
   const gastou = (tudo.total || 0) > 0;
+  const houveChamadas = (tudo.chamadas || 0) > 0;
+  const medido = mes.chamadas_com_uso === undefined ? gastou : mes.chamadas_com_uso > 0;
 
   // Sem dados, mostra explicação em vez de métricas zeradas.
   const comCusto = mes.chamadas_com_custo || 0;
-  $('uso-numeros').innerHTML = gastou
-    ? '<div><b class="verde">' + milhar(mes.entrada || 0) + '</b><span>' + L('entrada', 'input') + '</span>' +
+  $('uso-numeros').hidden = !houveChamadas;
+  $('uso-numeros').innerHTML = houveChamadas
+    ? '<div><b class="verde">' + (medido ? milhar(mes.entrada || 0) : L('não informado', 'not reported')) + '</b><span>' + L('entrada', 'input') + '</span>' +
       '<small>' + L('tokens nos últimos ', 'tokens in the last ') + periodoUso + L(' dias', ' days') + '</small></div>' +
-      '<div><b>' + milhar(mes.saida || 0) + '</b><span>' + L('saída', 'output') + '</span>' +
+      '<div><b>' + (medido ? milhar(mes.saida || 0) : L('não informado', 'not reported')) + '</b><span>' + L('saída', 'output') + '</span>' +
       '<small>' + (mes.cacheado ? milhar(mes.cacheado) + L(' tokens vieram do cache', ' tokens came from cache') : L('tokens nos últimos ', 'tokens in the last ') + periodoUso + L(' dias', ' days')) + '</small></div>' +
+      '<div><b>' + (mes.chamadas_com_raciocinio ? milhar(mes.raciocinio || 0) : L('não informado','not reported')) + '</b><span>' + L('raciocínio','thinking') + '</span><small>' +
+      (mes.nao_detalhados ? milhar(mes.nao_detalhados)+L(' tokens do total sem detalhamento',' total tokens without breakdown') : L('informado em ','reported in ')+ (mes.chamadas_com_raciocinio || 0)+L(' chamadas',' calls'))+'</small></div>' +
       '<div><b class="ambar">' + (comCusto ? dolar(mes.custo_usd) : L('não informado', 'not reported')) + '</b><span>' + L('custo em USD', 'cost in USD') + '</span>' +
       '<small>' + (comCusto ? L('informado em ', 'reported in ') + comCusto + L(' de ', ' of ') + mes.chamadas + L(' chamadas', ' calls') : L('nenhum provedor enviou preço', 'no provider reported price')) + '</small></div>' +
       '<div><b>' + (mes.chamadas || 0) + '</b><span>' + L('chamadas', 'calls') + '</span>' +
-      '<small>' + milhar(mes.total || 0) + L(' tokens no total', ' total tokens') + '</small></div>'
+      '<small>' + (mes.chamadas_sem_uso ? mes.chamadas_sem_uso + L(' sem contagem de tokens', ' without token counts') : milhar(mes.total || 0) + L(' tokens medidos', ' measured tokens')) + '</small></div>'
     : '';
 
   $('uso-tendencia').innerHTML = gastou ? graficoTendencia(dias) : '';
+  $('uso-tendencia').hidden = !gastou;
   $('uso-periodo-titulo').textContent = periodoUso === 365 ? L('Seu ano', 'Your year') : L('Dias do período', 'Days in period');
 
-  $('uso-calendario').innerHTML = gastou
+  $('uso-calendario').innerHTML = houveChamadas
     ? calendarioDe(dias)
     : '<div class="sem-uso"><b>' + L('Nenhum turno medido ainda', 'No measured turn yet') + '</b><span>' +
-      L('A contagem começa na primeira resposta que passar por aqui. Aponte sua ferramenta para este endereço na tela Conectar. Só entra no gráfico quem informa o consumo junto da resposta.',
-        'Counting starts with the first response that passes through here. Point your tool to this address on Connect. The chart only includes providers that report usage with the response.') + '</span></div>';
+      L('Chamadas do Sentury e de clientes deste servidor compartilham o registro local do RB. A contagem começa nesta versão; tokens antigos que não foram informados não podem ser recuperados.',
+        'Sentury and clients of this server share RB local records. Counting starts in this version; token counts not previously reported cannot be recovered.') + '</span></div>';
 
   const linhas = d.por_provedor || [];
   const maior = Math.max(1, ...linhas.map(x => x.total));
@@ -973,7 +983,9 @@ async function carregarUso() {
     '<div class="gasto">' + logo(x.provedor) +
     '<span class="quem">' + x.provedor + '</span>' +
     '<span class="barra"><span style="width:' + Math.round(x.total / maior * 100) + '%"></span></span>' +
-    '<span class="detalhe">' + milhar(x.entrada) + ' ' + L('entrada', 'input') + '<br>' + milhar(x.saida) + ' ' + L('saída', 'output') + '</span>' +
+    '<span class="detalhe">' + milhar(x.entrada) + ' ' + L('entrada', 'input') + '<br>' + milhar(x.saida) + ' ' + L('saída', 'output') +
+    (x.chamadas_com_raciocinio ? '<br>'+milhar(x.raciocinio || 0)+L(' raciocínio',' thinking'):'')+
+    (x.nao_detalhados ? '<br>'+milhar(x.nao_detalhados)+L(' sem detalhamento',' without breakdown'):'')+'</span>' +
     '<span class="n">' + milhar(x.total) + '<small>' +
       (x.chamadas_com_custo ? dolar(x.custo_usd) : L('custo não informado', 'cost not reported')) +
     '</small></span></div>').join('');
@@ -1111,6 +1123,11 @@ function trocarTela(qual) {
   else url.searchParams.set('tela', qual);
   if (qual !== 'conectar') url.searchParams.delete('ferramenta');
   window.history.replaceState({}, '', url);
+  const lugarBusca = $('busca-' + qual);
+  if (lugarBusca) lugarBusca.append($('busca-provedor'));
+  aplicarBusca();
+  RBClassificador.navegar(qual);
+  if(qual==='uso')carregarUso();
 }
 
 function desenharPeriodosUso() {
@@ -1167,6 +1184,9 @@ $('copiar-config').addEventListener('click', async () => {
   }
 });
 
+inicializarBusca();
+traduzirPagina();
+RBClassificador.iniciar();
 trocarTela(new URLSearchParams(window.location.search).get('tela') || 'agora');
 
 carregarConfig().catch(() => recado('recado-prov', L('não consegui ler a configuração', 'could not read configuration')));

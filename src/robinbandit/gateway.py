@@ -16,6 +16,7 @@ class RobinGateway:
 
     def __init__(self, config: RobinConfig, router: Optional[ProviderRouter] = None):
         self.config = config
+        self._classification_config = config
         self.router = router or ProviderRouter(
             providers=config.providers,
             weights=config.weights,
@@ -24,6 +25,7 @@ class RobinGateway:
             cost_penalties=config.cost_penalties,
             profiles=config.profiles,
         )
+        self.router._classification_config = config
 
     @classmethod
     def from_yaml(cls, path: str | Path) -> "RobinGateway":

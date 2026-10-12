@@ -38,7 +38,7 @@
       <div class="placar" id="placar"></div>
       <div class="fluxo" id="fluxo"></div>
       <h2 id="titulo-atividade"><span data-t="agora.atividade">Atividade recente</span> <span class="risco"></span></h2>
-      <p class="nota-local" id="nota-atividade" data-t="agora.atividade_nota">Só metadados operacionais desta execução. Conversas não são guardadas aqui.</p>
+      <p class="nota-local" id="nota-atividade" data-t="agora.atividade_nota">Chamadas concluídas ficam no histórico local. Conversas não são guardadas aqui.</p>
       <div class="atividade" id="atividade"></div>
       <h2><span data-t="agora.fila">A fila de agora</span> <span class="risco"></span></h2>
       <div class="carta" id="ordem"></div>
@@ -53,6 +53,27 @@
         <h1 data-t="prov.titulo">Provedores e rota</h1>
         <p data-t="prov.intro">Defina como a rota normal escolhe provedores e quando usar a fila Reforçada por chamada.</p>
       </div>
+      <div class="modo-rota"><label for="modo-rota" data-t="prov.como_decidir">Modo da rota normal</label><div id="estrategia"></div><p id="modo-descricao" class="dica"></p><p class="recado" id="recado-prov" role="status"></p></div>
+      <div id="clf-workspace" class="clf-workspace" hidden><p id="clf-resumo" class="dica"></p>
+      <div id="classificador-painel">
+        <div class="clf-cabeca"><div><h2 id="clf-titulo" data-t="clf.titulo">Modelos por complexidade</h2><p class="dica" id="clf-aviso" data-t="clf.aviso">O teste mostra a classificação sem chamar os modelos dos blocos.</p><p id="clf-ativacao" role="status"></p></div><div class="clf-acoes"><button type="button" class="acao" id="clf-salvar" data-t="clf.salvar" disabled>Salvar configuração</button><button type="button" class="acao" id="clf-descartar" data-t="clf.descartar" disabled>Descartar alterações</button></div></div>
+        <form id="clf-teste" class="clf-teste">
+          <div class="clf-teste-linha"><label class="so-leitor" for="clf-teste-pedido" data-t="clf.pedido_teste">Pedido para testar</label><input id="clf-teste-pedido" maxlength="16000" required value="Analise um projeto de software, encontre os problemas e proponha um plano de correção." data-t-value="clf.pergunta_pronta"><button type="submit" class="acao" id="clf-testar" data-t="clf.testar" disabled>Testar classificação</button></div>
+          <p class="clf-status" id="clf-status" role="status" aria-live="polite">Carregando…</p>
+          <span class="dica" data-t="clf.teste_aviso">Testa só o classificador. Pode consumir cota; não altera o modo ativo.</span>
+          <details><summary data-t="clf.contexto_teste">Contexto adicional (opcional)</summary><label class="so-leitor" for="clf-teste-contexto" data-t="clf.contexto_teste">Contexto adicional (opcional)</label><textarea id="clf-teste-contexto" rows="2" maxlength="24000"></textarea></details>
+        </form>
+        <div class="clf-mapa" id="clf-mapa"><div id="clf-caixas"></div><div class="clf-centro"><button type="button" class="clf-olhos" id="clf-rosto" aria-label="Configurar modelos classificadores" aria-controls="clf-gerir" aria-expanded="false"><span class="clf-olho" aria-hidden="true"></span><span class="clf-olho" aria-hidden="true"></span></button><strong data-t="clf.centro">Classificador</strong><small id="clf-centro-estado">Não escolhido</small><div id="clf-gerir" class="clf-popover" hidden><div class="clf-popover-topo"><strong data-t="clf.ordem">Ordem dos classificadores</strong><button type="button" id="clf-fechar-gerir" aria-label="Fechar">×</button></div><p class="dica" data-t="clf.reservas">O primeiro classifica. As reservas são tentadas se ele falhar.</p><div id="clf-lista-classificadores"></div><button type="button" class="acao" id="clf-editar-llm" data-t="clf.editar">Adicionar outro classificador</button></div></div></div>
+        <details class="clf-config" id="clf-config"><summary id="clf-config-titulo" data-t="clf.config_titulo">Quem classifica</summary>
+          <p class="dica" id="clf-config-aviso" data-t="clf.config_aviso">Classificador especializado é a opção principal. LLM é uma alternativa; salvar não ativa o modo.</p>
+          <div class="clf-config-campos"><label for="clf-tipo"><span data-t="clf.tipo">Tipo</span><select id="clf-tipo" disabled><option value="nenhum" disabled data-t="clf.especializado">Especializado (não conectado)</option><option value="llm" data-t="clf.llm">LLM como alternativa</option></select></label></div>
+          <p class="dica" id="clf-especializado-aviso" data-t="clf.especializado_aviso">Nenhum classificador especializado está conectado. O ambiente local permanece desativado.</p>
+          <div id="clf-adicionar-llm" hidden><div class="clf-config-campos"><label for="clf-provedor"><span data-t="clf.provedor">Provedor</span><select id="clf-provedor" disabled></select></label><label for="clf-modelo"><span data-t="clf.modelo">Modelo</span><input id="clf-modelo" list="clf-modelos" maxlength="256" autocomplete="off" spellcheck="false" placeholder="Escolha ou digite um ID" data-t-ph="clf.modelo_ph"><datalist id="clf-modelos"></datalist></label><button type="button" class="acao" id="clf-add-modelo" data-t="clf.add_modelo" disabled>Adicionar à classificação</button></div><p class="dica" id="clf-modelo-aviso"></p><p class="dica" data-t="clf.flash">Se usar LLM, recomendamos modelos Flash ou equivalentes leves.</p><div id="clf-lista-config"></div></div>
+          <details class="clf-contrato"><summary data-t="clf.contexto">Contexto enviado ao classificador</summary><p class="dica" data-t="clf.saida">A saída aceita é apenas um rótulo de nível.</p><pre id="clf-contrato-texto"></pre></details>
+        </details>
+        <details id="clf-catalogo-painel" class="clf-catalogo-painel"><summary><span data-t="clf.catalogo">Modelos disponíveis</span><small id="clf-catalogo-contagem"></small></summary><div class="clf-catalogo-topo"><label class="so-leitor" for="clf-busca" data-t="clf.busca">Buscar modelo ou provedor</label><input type="search" id="clf-busca" data-t-ph="clf.busca" placeholder="Buscar modelo ou provedor…"><button type="button" class="acao" id="clf-exemplo" data-t="clf.exemplo">Preencher caixas de exemplo</button></div><p class="dica" id="clf-ajuda" data-t="clf.ajuda">Arraste para o rosto ou uma caixa, ou clique para escolher o destino.</p><form class="clf-escolha" id="clf-escolha" hidden><span id="clf-modelo-escolhido"></span><label for="clf-destino" data-t="clf.complexidade">Destino</label><select id="clf-destino"></select><button class="acao" type="submit" data-t="clf.adicionar">Adicionar</button><button class="acao" type="button" id="clf-cancelar-escolha" data-t="clf.cancelar">Cancelar</button></form><div id="clf-catalogo"></div></details>
+      </div></div>
+      <div id="rota-atual">
       <div class="mapa-rotas" aria-label="Rotas disponíveis">
         <article class="rota-tipo principal">
           <span class="rota-etiqueta" data-t="prov.rota_padrao">sempre ativa</span>
@@ -68,16 +89,17 @@
           <code>X-RobinBandit-Mode: reinforced</code>
         </article>
       </div>
-      <h2><span data-t="prov.como_decidir">Modo da rota normal</span> <span class="risco"></span></h2>
-      <div class="escolhas" id="estrategia"></div>
       <p class="como"><span data-t="prov.normal_header">Usada sem header ou com</span>
          <code>X-RobinBandit-Mode: normal</code>.</p>
+      <div class="ferramentas-catalogo">
+        <div class="abas" id="filtro-provedores"></div>
+        <div class="lugar-busca" id="busca-provedores"></div>
+      </div>
       <div class="ordem-cadeia" id="ordem-cadeia"></div>
-      <div class="abas" id="filtro-provedores"></div>
       <div id="tiers"></div>
       <p class="como" id="nota-fallback" data-t="prov.ultimo">Se todos falharem, o RobinBandit devolve um aviso. Esse aviso não é provedor e não entra em tier.</p>
       <div id="reservados"></div>
-      <p class="recado" id="recado-prov"></p>
+      </div>
     </section>
 
     <section id="tela-modelos" class="oculto">
@@ -85,7 +107,21 @@
         <h1 data-t="mod.titulo">Modelos de cada provedor</h1>
         <p data-t="mod.intro">Depois de escolher um provedor, o RobinBandit tenta estes modelos de cima para baixo. Adicione um id manualmente ou consulte o catálogo atual do provedor.</p>
       </div>
-      <div class="abas" id="filtro-modelos"></div>
+      <div class="ferramentas-catalogo">
+        <div class="abas" id="filtro-modelos"></div>
+        <div class="lugar-busca" id="busca-modelos">
+          <div class="busca-provedor" id="busca-provedor" hidden>
+            <label class="so-leitor" for="buscar-provedor" data-t="busca.rotulo">Buscar no catálogo</label>
+            <div class="busca-campo">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4 4"/></svg>
+              <input id="buscar-provedor" type="search" autocomplete="off" spellcheck="false" aria-describedby="busca-contagem">
+              <button type="button" id="limpar-busca" hidden>Limpar</button>
+            </div>
+            <span id="busca-contagem" role="status" aria-live="polite"></span>
+            <p id="busca-vazia" hidden></p>
+          </div>
+        </div>
+      </div>
       <div id="modelos"></div>
       <p class="recado" id="recado-mod"></p>
     </section>
@@ -104,7 +140,10 @@
         </div>
         <button type="button" class="acao" id="btn-importar" data-t="cred.trazer">trazer para o cofre</button>
       </div>
-      <div class="abas" id="filtro-cred"></div>
+      <div class="ferramentas-catalogo">
+        <div class="abas" id="filtro-cred"></div>
+        <div class="lugar-busca" id="busca-credenciais"></div>
+      </div>
       <div id="credenciais" data-t="comum.carregando">carregando…</div>
       <details class="somar-conta">
         <summary data-t="cred.add_conta">Adicionar outra conta</summary>

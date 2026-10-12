@@ -480,14 +480,50 @@ One page, served by the package itself. It shows the current order, who can
 answer, who is waiting, tokens, reported cost and the reason each provider moved
 in the queue.
 
+In Providers, Models and Credentials, search sits alongside the filters. It
+finds providers, models, accounts and variable names, including entries outside
+the current chain, without clearing fields you have already filled in.
+
 There are seven tabs. What each one solves:
+
+In Providers, Classifier settings let you prepare complexity boxes, select
+catalog models by clicking or dragging, and order attempts from left to right.
+Saving configuration stores these boxes locally without changing the active
+route. A single selector at the top sets the routing mode. Selecting Classifier
+shows only classification and complexity boxes, without Normal, Reinforced or
+other modes' ordering controls. Settings,
+catalog and box contexts can be collapsed.
+Box context opens a floating editor without moving or resizing the boxes.
+The mode can be selected with incomplete settings; requests are rejected
+until a classifier and box models are saved. Round-robin models do not fill
+missing settings.
+
+Who classifies distinguishes a specialized classifier from an LLM alternative.
+No specialized classifier is connected; the local runtime remains disabled.
+For the LLM alternative, catalog models and manual IDs can be added as the
+primary model or backups without clearing previous choices. Saving does not activate
+requests. Each box accepts your context, such as preferring its models for
+programming. The contract uses the request, relevant context and these
+preferences; accepted output is only `SIMPLE`, `STANDARD`, `COMPLEX` or
+`CRITICAL`, with no explanation. RB validates the label without keyword
+classification. Dropping onto the face adds a primary classifier or backup.
+Click the face to view the order, reorder or remove models. Test classification
+sits next to the scene with a ready-to-use editable question. It uses the
+current draft and calls only classifier LLMs, without executing box
+models, saving or activating the mode. It may consume account quota. Backups
+share a total 30-second deadline.
+
+We recommend starting with Flash models or lightweight equivalents, then
+comparing latency and accuracy. The provider describes Flash-Lite for
+[high-volume classification](https://ai.google.dev/gemini-api/docs/models/gemini-2.5-flash-lite).
+This does not guarantee it is the best choice for your requests.
 
 ### Providers: choose the queue policy
 
 ![Normal and Reinforced routes plus Adaptive, Tier priority, Fixed list and Round-robin modes](docs/imagens/painel-provedores.png)
 
 A tier is a group, and several providers fit in the same one. The normal route
-offers four modes:
+offers five modes:
 
 * **Adaptive** (`strategy: adaptive`): the tier is a bonus. A tier 2
   provider that has been answering better goes ahead of tier 1.
@@ -498,6 +534,10 @@ offers four modes:
   on only after unavailability or failure.
 * **Round robin** (`strategy: round_robin`) rotates the first attempt after each
   real call. Opening the panel does not move the cursor.
+* **Classifier** (`strategy: classifier`) uses the selected LLM to choose a box.
+  It tries its models in order, then the nearest level if they all fail,
+  preferring the higher level on ties. Failed classification falls back to
+  Adaptive. Reinforced, Dedicated and auxiliary routes are not reclassified.
 
 Reinforced is separate: one call can request a preferred account queue with
 `X-RobinBandit-Mode: reinforced`. If every preferred account fails, the request
@@ -537,6 +577,7 @@ Local data is split by concern under `~/.robinbandit/`:
 | `ranking.json` | router learning |
 | `historico.json` | daily health for the last 60 days |
 | `uso.json` | tokens and provider-reported cost for the last 365 days |
+| `atividade.json` | last 60 completed calls, without conversation content |
 | `janelas.json` | subscription usage blocks |
 
 An older installation that still mixes preferences into `contas.json` is
@@ -551,6 +592,22 @@ The panel separates input, output and cached tokens, shows calls, and keeps a
 365-day calendar. USD cost appears when the provider includes it in the
 response. When price is not reported, the panel says so instead of showing
 `$0.00`.
+
+A call is counted even when its provider reports no token usage. The panel
+separates these calls from received measurements: missing data is not zero
+consumption. Sentury and the RB server share these records when using the same
+state directory. History cannot recover measurements that were never recorded.
+Activity stores provider, model, status and duration, without prompts, responses
+or credentials.
+
+Usage refreshes on opening, after a classification test and while visible.
+Thinking tokens are separate when reported. Historical differences remain
+tokens without a breakdown, not estimates. Restricted classification with
+Gemini 2.5 Flash and Flash-Lite disables thinking, caps output at 16 tokens
+and uses a native enum for the four levels. The cap applies to output: the
+request, criteria and contexts also consume tokens. Normal responses do not
+receive these limits. Other models retain compatible adapter behavior; RB
+does not assume every model can disable thinking.
 
 ### Connect: plugging in a tool
 

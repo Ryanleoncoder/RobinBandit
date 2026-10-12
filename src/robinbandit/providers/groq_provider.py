@@ -174,7 +174,11 @@ class FallbackProvider:
     # Quem monta a cadeia pode olhar isto antes de tratar a saída como resposta.
     e_aviso = True
 
-    async def complete(self, messages: List[Dict[str, str]], temperature: float = 0.2, complexity: Optional[str] = None) -> str:
+    async def complete(self, messages: List[Dict[str, str]], temperature: float = 0.2, complexity: Optional[str] = None,
+                       falhas=None) -> str:
+        motivos = [str(f.get("motivo")) for f in (falhas or {}).values() if f.get("motivo")]
+        if motivos:
+            return "Nenhum provedor de IA respondeu agora. " + "; ".join(motivos) + "."
         return (
             "Nenhum provedor de IA respondeu agora — provavelmente limite de uso "
             "temporário. Tente de novo em alguns instantes. Se persistir, veja as "

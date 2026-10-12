@@ -485,11 +485,11 @@ def definir_modelos_de_provedor(provider: str, modelos: List[str], papel: str = 
 
 # Estratégia de roteamento escolhida no painel.
 
-ESTRATEGIAS = ("adaptive", "tier", "fixed", "round_robin")
+ESTRATEGIAS = ("adaptive", "tier", "fixed", "round_robin", "classifier")
 
 
 def estrategia(padrao: str = "adaptive") -> str:
-    """Estratégia ativa: adaptive, tier, fixed ou round_robin."""
+    """A escolha do painel vence o padrão declarado pelo aplicativo."""
     escolhida = str(carregar().get("estrategia") or "").strip().lower()
     return escolhida if escolhida in ESTRATEGIAS else str(padrao or "adaptive")
 

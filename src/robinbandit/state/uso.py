@@ -8,6 +8,7 @@ import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+from .trava import bloquear
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +41,7 @@ def _gravar(dados: Dict[str, Any]) -> None:
     alvo = caminho()
     try:
         alvo.parent.mkdir(parents=True, exist_ok=True)
-        tmp = alvo.with_suffix(".tmp")
+        tmp = alvo.with_suffix(f".{os.getpid()}.{threading.get_ident()}.tmp")
         tmp.write_text(json.dumps(dados, ensure_ascii=False), encoding="utf-8")
         tmp.replace(alvo)
     except OSError as exc:
@@ -50,15 +51,14 @@ def _gravar(dados: Dict[str, Any]) -> None:
 def registrar(provedor: str, uso: Optional[Dict[str, Any]]) -> None:
     """Soma o gasto de uma chamada ao dia de hoje."""
     chave = str(provedor or "").strip().lower()
-    if not chave or not isinstance(uso, dict):
+    if not chave:
         return
+    informado = isinstance(uso, dict) and any(k in uso for k in ("entrada", "saida", "total"))
+    uso = uso if isinstance(uso, dict) else {}
     entrada = int(uso.get("entrada") or 0)
     saida = int(uso.get("saida") or 0)
-    total = int(uso.get("total") or 0) or (entrada + saida)
-    if not total:
-        # Provedor que não informa uso não vira uma linha de zeros: isso faria
-        # parecer que ele foi usado de graça.
-        return
+    raciocinio = max(0, int(uso.get("raciocinio") or 0))
+    total = int(uso.get("total") or 0) or (entrada + saida + raciocinio)
     cacheado = int(uso.get("cacheado") or 0)
     custo_bruto = uso.get("custo_usd")
     try:
@@ -67,15 +67,21 @@ def registrar(provedor: str, uso: Optional[Dict[str, Any]]) -> None:
         custo_usd = None
     dia = _hoje()
 
-    with _LOCK:
+    with _LOCK, bloquear(caminho()):
         dados = _ler()
         por_dia = dados.setdefault(dia, {})
         linha = por_dia.setdefault(chave, {
             "entrada": 0, "saida": 0, "total": 0, "cacheado": 0,
             "chamadas": 0, "custo_usd": 0.0, "chamadas_com_custo": 0,
+            "chamadas_com_uso": 0, "chamadas_sem_uso": 0,
         })
+        anteriores = int(linha.get("chamadas", 0))
+        linha["chamadas_com_uso"] = int(linha.get("chamadas_com_uso", anteriores)) + int(informado)
+        linha["chamadas_sem_uso"] = int(linha.get("chamadas_sem_uso", 0)) + int(not informado)
         linha["entrada"] += entrada
         linha["saida"] += saida
+        linha["raciocinio"] = int(linha.get("raciocinio", 0)) + raciocinio
+        linha["chamadas_com_raciocinio"] = int(linha.get("chamadas_com_raciocinio", 0)) + int("raciocinio" in uso)
         linha["total"] += total
         linha["cacheado"] += cacheado
         linha["chamadas"] += 1
@@ -98,6 +104,14 @@ def _dias(quantos: int) -> List[str]:
     ]
 
 
+def _detalhamento(linha):
+    raciocinio = int(linha.get("raciocinio", 0))
+    return {"raciocinio": raciocinio,
+            "chamadas_com_raciocinio": int(linha.get("chamadas_com_raciocinio", 0)),
+            "nao_detalhados": max(0, int(linha.get("total", 0)) - int(linha.get("entrada", 0))
+                                   - int(linha.get("saida", 0)) - raciocinio)}
+
+
 def calendario(dias: int = DIAS_GUARDADOS, provedor: str = "") -> List[Dict[str, Any]]:
     """Um ponto por dia, do mais antigo para o mais novo."""
     dados = _ler()
@@ -115,11 +129,15 @@ def calendario(dias: int = DIAS_GUARDADOS, provedor: str = "") -> List[Dict[str,
         chamadas_com_custo = sum(
             int(l.get("chamadas_com_custo", 0)) for l in linhas.values()
         )
+        chamadas_com_uso = sum(int(l.get("chamadas_com_uso", l.get("chamadas", 0))) for l in linhas.values())
+        chamadas_sem_uso = sum(int(l.get("chamadas_sem_uso", 0)) for l in linhas.values())
         custo_usd = round(
             sum(float(l.get("custo_usd", 0) or 0) for l in linhas.values()), 6
         )
         saida.append({
             "dia": dia,
+            **{k: sum(_detalhamento(l)[k] for l in linhas.values())
+               for k in ("raciocinio", "chamadas_com_raciocinio", "nao_detalhados")},
             "entrada": entrada,
             "saida": saida_tokens,
             "total": total,
@@ -127,6 +145,8 @@ def calendario(dias: int = DIAS_GUARDADOS, provedor: str = "") -> List[Dict[str,
             "chamadas": chamadas,
             "custo_usd": custo_usd,
             "chamadas_com_custo": chamadas_com_custo,
+            "chamadas_com_uso": chamadas_com_uso,
+            "chamadas_sem_uso": chamadas_sem_uso,
         })
     return saida
 
@@ -141,11 +161,16 @@ def por_provedor(dias: int = 30) -> List[Dict[str, Any]]:
                 nome, {
                     "entrada": 0, "saida": 0, "total": 0, "cacheado": 0,
                     "chamadas": 0, "custo_usd": 0.0, "chamadas_com_custo": 0,
+                    "chamadas_com_uso": 0, "chamadas_sem_uso": 0,
                 }
             )
             for campo in ("entrada", "saida", "total", "cacheado", "chamadas", "chamadas_com_custo"):
                 alvo[campo] += int(linha.get(campo, 0))
+            for campo, valor in _detalhamento(linha).items():
+                alvo[campo] = alvo.get(campo, 0) + valor
             alvo["custo_usd"] += float(linha.get("custo_usd", 0) or 0)
+            alvo["chamadas_com_uso"] += int(linha.get("chamadas_com_uso", linha.get("chamadas", 0)))
+            alvo["chamadas_sem_uso"] += int(linha.get("chamadas_sem_uso", 0))
     saida = [{"provedor": nome, **valores} for nome, valores in acumulado.items()]
     saida.sort(key=lambda item: -item["total"])
     return saida
@@ -154,6 +179,7 @@ def por_provedor(dias: int = 30) -> List[Dict[str, Any]]:
 def total(dias: int = 30) -> Dict[str, Any]:
     linhas = por_provedor(dias)
     return {
+        **{k: sum(l.get(k, 0) for l in linhas) for k in ("raciocinio", "chamadas_com_raciocinio", "nao_detalhados")},
         "entrada": sum(l["entrada"] for l in linhas),
         "saida": sum(l["saida"] for l in linhas),
         "total": sum(l["total"] for l in linhas),
@@ -162,6 +188,8 @@ def total(dias: int = 30) -> Dict[str, Any]:
         "provedores": len(linhas),
         "custo_usd": round(sum(float(l["custo_usd"]) for l in linhas), 6),
         "chamadas_com_custo": sum(l["chamadas_com_custo"] for l in linhas),
+        "chamadas_com_uso": sum(l["chamadas_com_uso"] for l in linhas),
+        "chamadas_sem_uso": sum(l["chamadas_sem_uso"] for l in linhas),
     }
 
 

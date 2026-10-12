@@ -1,0 +1,6 @@
+[
+  {"id":"SIMPLE","pt":"Simples","en":"Simple","criterio":"Resposta direta ou transformação curta, sem etapas dependentes nem análise aprofundada."},
+  {"id":"STANDARD","pt":"Padrão","en":"Standard","criterio":"Tarefa comum com algumas etapas, explicação ou comparação, sem restrições fortemente interdependentes."},
+  {"id":"COMPLEX","pt":"Complexo","en":"Complex","criterio":"Investigação, planejamento ou solução com várias etapas dependentes e análise aprofundada."},
+  {"id":"CRITICAL","pt":"Crítico","en":"Critical","criterio":"Raciocínio muito exigente, com muitas restrições interdependentes e necessidade de validação rigorosa. Não significa apenas assunto sensível."}
+]

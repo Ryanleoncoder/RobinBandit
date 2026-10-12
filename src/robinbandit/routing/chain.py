@@ -90,7 +90,11 @@ def recusas_do_turno() -> List[Dict[str, Any]]:
     return list(_RECUSAS_DO_TURNO.get() or [])
 
 
+_CACHE_MEDIDO = contextvars.ContextVar("robin_cache_medido", default=False)
+
+
 def iniciar_contagem() -> None:
+    _CACHE_MEDIDO.set(False)
     _RECUSAS_DO_TURNO.set([])
     _USO_DO_TURNO.set({
         "entrada": 0, "saida": 0, "total": 0, "cacheado": 0,
@@ -159,7 +163,7 @@ def contagem_do_turno():
     # Omite campos que o provedor não informou.
     if isinstance(uso, dict):
         ocultos = set()
-        if not uso.get("cacheado"):
+        if not uso.get("cacheado") and not _CACHE_MEDIDO.get():
             ocultos.add("cacheado")
         if not uso.get("chamadas_com_custo"):
             ocultos.update({"custo_usd", "chamadas_com_custo"})
@@ -175,9 +179,13 @@ def _somar(uso) -> None:
     saida = int(uso.get("saida") or 0)
     atual["entrada"] += entrada
     atual["saida"] += saida
+    if "raciocinio" in uso:
+        atual["raciocinio"] = int(atual.get("raciocinio") or 0) + int(uso["raciocinio"] or 0)
     atual["total"] += int(uso.get("total") or 0) or (entrada + saida)
     # Parte da entrada que veio do cache do provedor (cobrada a 10% no Gemini).
     atual["cacheado"] = int(atual.get("cacheado") or 0) + int(uso.get("cacheado") or 0)
+    if "cacheado" in uso:
+        _CACHE_MEDIDO.set(True)
     atual["chamadas"] += 1
     if uso.get("custo_usd") is not None:
         try:
@@ -217,10 +225,11 @@ class FalhaDaCadeia(RuntimeError):
     de novo, nao "o servico caiu".
     """
 
-    def __init__(self, mensagem: str, tipos: List[str]):
+    def __init__(self, mensagem: str, tipos: List[str], falhas=None):
         super().__init__(mensagem)
         self.tipos = list(tipos)
         self.tipo = self.tipos[-1] if self.tipos else "other"
+        self.falhas = dict(falhas or {})
 
     @property
     def da_requisicao(self) -> bool:
@@ -230,7 +239,10 @@ class FalhaDaCadeia(RuntimeError):
         return bool(self.tipos) and all(da_requisicao(t) for t in self.tipos)
 
 
-class ChainProvider:
+from .falhas import MotivosDaChamada
+
+
+class ChainProvider(MotivosDaChamada):
     """Encadeia provedores e tenta cada um até obter resposta."""
 
     _RATE_LIMIT_RETRIES = 1
@@ -324,6 +336,17 @@ class ChainProvider:
                        context: Optional[str] = None, selection=None,
                        tools: Optional[list] = None,
                        reasoning_effort: Optional[str] = None) -> str:
+        from ..accounts.account_config import estrategia
+        escolhido = coerce_selection(selection)
+        config = getattr(self.router, "_classification_config", None)
+        roteador = getattr(self.router, "router", self.router)
+        if (config is not None and not getattr(self, "_classification_disabled", False)
+                and escolhido.mode == "router" and not escolhido.provider
+                and estrategia(getattr(roteador, "_strategy", "adaptive")) == "classifier"):
+            from .classificador_execucao import responder
+            resultado = await responder(self, config, messages, temperature, context, tools, reasoning_effort)
+            if resultado is not None:
+                return resultado
         # Uma entrada com ferramentas não pode reutilizar só o texto em cache:
         # a chamada estruturada e seu id também fazem parte da resposta.
         if self.cache is not None and not tools:
@@ -331,6 +354,7 @@ class ChainProvider:
             if cached is not None:
                 self.last_model = "cache"
                 return cached
+        self._abrir_motivos()
         last_error = None
         tipos_das_falhas: List[str] = []
         selected = coerce_selection(selection)
@@ -367,7 +391,7 @@ class ChainProvider:
             for tentativa in range(self._RATE_LIMIT_RETRIES + 1):
                 inicio = time.perf_counter()
                 evento = self.activity.abrir(
-                    pname, context, modo=selected.mode, tentativa=tentativa + 1,
+                    pname, context, modo="classificador" if getattr(self, "_classification_attempt", False) else selected.mode, tentativa=tentativa + 1,
                 ) if self.activity is not None else None
                 self.router.begin(pname)
                 try:
@@ -375,6 +399,8 @@ class ChainProvider:
                     parametros = inspect.signature(provider.complete).parameters
                     accepts_any = any(p.kind is p.VAR_KEYWORD for p in parametros.values())
                     kwargs = {}
+                    if "falhas" in parametros:
+                        kwargs["falhas"] = self.ultimas_falhas
                     if "context" in parametros or accepts_any:
                         kwargs["context"] = context
                     if tools and ("tools" in parametros or accepts_any):
@@ -404,7 +430,8 @@ class ChainProvider:
                     self.last_usage = getattr(provider, "last_usage", None)
                     self.last_tool_calls = getattr(provider, "last_tool_calls", None)
                     _somar(self.last_usage)
-                    _anotar_o_gasto(efetivo, self.last_usage)
+                    if not getattr(provider, "e_aviso", False):
+                        _anotar_o_gasto(efetivo, self.last_usage)
                     for failed_model in dict.fromkeys(getattr(provider, "model_failures", []) or []):
                         self.router.record_model_failure(pname, failed_model)
                     self.router.record_success(pname, latency_ms, model=self.last_model, context=context)
@@ -432,6 +459,7 @@ class ChainProvider:
                     for failed_model in failed_models:
                         self.router.record_model_failure(pname, failed_model)
                     tipo = classify_error(exc)
+                    self._registrar_falha(pname, tipo, exc)
                     if evento:
                         self.activity.concluir(
                             evento,
@@ -472,4 +500,5 @@ class ChainProvider:
                 finally:
                     self.router.end(pname)
         anotar_resposta(texto="", erro=str(last_error)[:500], tipos=list(tipos_das_falhas))
-        raise FalhaDaCadeia(f"Todos os provedores de LLM falharam: {last_error}", tipos_das_falhas)
+        raise FalhaDaCadeia(f"Todos os provedores de LLM falharam: {last_error}", tipos_das_falhas,
+                           self.ultimas_falhas)

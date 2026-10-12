@@ -10,6 +10,13 @@
 version: 1
 agent_mode: universal
 
+routes:
+  auxiliar:
+    chain_order: [groq, gemini]
+    models:
+      groq: [openai/gpt-oss-20b]
+      gemini: [gemini-2.5-flash-lite]
+
 # Em que lingua o painel e a linha de comando respondem: `pt` ou `en`.
 # Vazio (ou ausente) significa "descubra pelo sistema" — quem roda em portugues
 # recebe portugues sem configurar nada.
@@ -231,12 +238,14 @@ providers:
   chatgpt_codex:
     adapter: codex_app_server
     capabilities: [vision]
-    label: ChatGPT Codex
+    label: ChatGPT
+    login_direto: true
     # Identificador semântico; o cliente hospedeiro é dono do asset visual.
     icon: openai
     # OAuth pertence ao CLI oficial. Execute `codex login`; nenhum token entra
     # neste YAML, no cofre Robin ou nos objetos serializados do painel.
     auth_type: codex_cli
+    instalacao_url: https://developers.openai.com/codex/cli/
     binary: codex
     binary_env: CODEX_BINARY
     models_env: CHATGPT_CODEX_MODELS
@@ -355,6 +364,7 @@ providers:
     # Sem chave de API: quem autentica e o CLI, com a conta que voce ja usa.
     # O RobinBandit nao le nem renova credencial — so chama o executavel.
     auth_type: claude_cli
+    instalacao_url: https://code.claude.com/docs/en/setup
     binary: claude
     binary_env: CLAUDE_CODE_BIN
     models_env: CLAUDE_CODE_MODELS

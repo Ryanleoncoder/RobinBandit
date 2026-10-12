@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import json
 import logging
 import os
@@ -11,8 +12,33 @@ import subprocess
 import time
 from dataclasses import dataclass
 from typing import Any, Dict, Iterable, List, Optional
+from .codex_limite import LimiteDoCodex, erro_do_turno
+from .codex_ferramentas import FerramentaEscolhida, declarar, capturar, nome_no_cli
 
 logger = logging.getLogger(__name__)
+
+
+def _uso_de_tokens(params: Dict[str, Any]) -> Optional[Dict[str, int]]:
+    """Cada evento contém uma fotografia acumulada, não um incremento."""
+    uso = params.get("tokenUsage")
+    if not isinstance(uso, dict):
+        return None
+    bruto = uso.get("total")
+    if not isinstance(bruto, dict):
+        bruto = uso.get("last")
+    if not isinstance(bruto, dict):
+        return None
+    entrada, saida = bruto.get("inputTokens"), bruto.get("outputTokens")
+    if any(type(v) is not int or v < 0 for v in (entrada, saida)):
+        return None
+    total = bruto.get("totalTokens", entrada + saida)
+    if type(total) is not int or total < 0:
+        return None
+    resultado = {"entrada": entrada, "saida": saida, "total": total}
+    cacheado = bruto.get("cachedInputTokens")
+    if type(cacheado) is int and 0 <= cacheado <= entrada:
+        resultado["cacheado"] = cacheado
+    return resultado
 
 # A restrição é sobre executar dentro do CLI, não sobre descrever uma ação
 # para o harness hospedeiro. A proibição genérica fazia o modelo negar até
@@ -21,8 +47,8 @@ _PROVIDER_GUARD = (
     "Você está operando como provedor de modelo do RobinBandit, não como agente do Codex. "
     "Não execute ferramentas locais do Codex, comandos, plugins, MCP, navegação ou alterações de arquivos. "
     "As ferramentas descritas nas instruções da conversa pertencem ao harness hospedeiro: "
-    "você pode selecionar essas ferramentas e emitir o JSON de ação pedido; quem executa e "
-    "autoriza é o hospedeiro, fora deste CLI. Emitir esse JSON não é executar uma ferramenta local. "
+    "você pode selecionar essas ferramentas pelo formato solicitado na conversa; quem executa e "
+    "autoriza é o hospedeiro, fora deste CLI. Selecionar não é executar uma ferramenta local. "
     "Siga o formato de saída das instruções da conversa, independentemente do idioma do pedido. "
     "Não negue acesso a uma capacidade do hospedeiro apenas porque o CLI não a executa. "
     "Se nenhuma ferramenta for necessária, siga o contrato de resposta da conversa. "
@@ -267,6 +293,11 @@ class CodexAppServerClient:
         self.binary = str(binary or "codex")
         self.timeout = min(max(5.0, float(timeout)), _TETO_DA_CHAMADA_S)
         self._next_id = 1
+        self.last_usage: Optional[Dict[str, int]] = None
+        self.last_tool_calls = None
+        self.last_reasoning_summary = None
+        self._dynamic_tools, self._tool_names = [], {}
+        self._thread_id = None
 
     def _command(self, executable: str) -> List[str]:
         """Comando isolado do Codex usado como provedor de saída."""
@@ -312,6 +343,7 @@ class CodexAppServerClient:
                 continue
             # JSON-RPC bidirecional tem espaços de IDs independentes.
             if "method" in message and "id" in message:
+                self._capturar_pedido(message)
                 await self._decline_server_request(process, message)
                 continue
             if message.get("id") == request_id:
@@ -323,6 +355,44 @@ class CodexAppServerClient:
                 return result if isinstance(result, dict) else {}
             if on_notification is not None and "method" in message:
                 on_notification(message)
+
+    def _capturar_pedido(self, message):
+        if message.get("method") != "item/tool/call":
+            return
+        params = message.get("params") or {}
+        try:
+            chamada = capturar(params, self._tool_names, self._thread_id)
+        except ValueError as exc:
+            raise CodexAppServerError(str(exc)) from exc
+        if chamada is not None:
+            self.last_tool_calls = [chamada]
+            raise FerramentaEscolhida(params)
+
+    async def _interromper_apos_escolha(self, process, params):
+        """Interrompe o CLI antes que ele espere ou fabrique o resultado da ferramenta."""
+        await self._send(process, {"id": self._next_id, "method": "turn/interrupt", "params": {
+            "threadId": params["threadId"], "turnId": params["turnId"]}})
+        self._next_id += 1
+        prazo = time.monotonic() + 1.0
+        while process.stdout and time.monotonic() < prazo:
+            try:
+                raw = await asyncio.wait_for(process.stdout.readline(), prazo - time.monotonic())
+                if not raw:
+                    break
+                message = json.loads(raw.decode("utf-8"))
+            except (asyncio.TimeoutError, ValueError):
+                break
+            dados = message.get("params") or {}
+            if message.get("method") == "thread/tokenUsage/updated" and dados.get("threadId") == self._thread_id:
+                usado = _uso_de_tokens(dados)
+                if usado is not None:
+                    self.last_usage = usado
+            elif message.get("method") == "item/tool/call":
+                chamada = capturar(dados, self._tool_names, self._thread_id)
+                if chamada and all(c["id"] != chamada["id"] for c in self.last_tool_calls):
+                    self.last_tool_calls.append(chamada)
+            elif message.get("method") == "turn/completed":
+                break
 
     async def _decline_server_request(
         self, process: asyncio.subprocess.Process, request: Dict[str, Any]
@@ -344,7 +414,12 @@ class CodexAppServerClient:
         *,
         model: str,
         reasoning_effort: Optional[str] = None,
+        tools: Optional[list] = None,
     ) -> tuple[str, Optional[str]]:
+        self.last_usage = None
+        self.last_tool_calls = None
+        self.last_reasoning_summary = None
+        self._dynamic_tools, self._tool_names = declarar(tools)
         executable = resolve_codex_binary(self.binary)
         if not executable:
             raise CodexAppServerError("Codex CLI não instalado")
@@ -389,6 +464,9 @@ class CodexAppServerClient:
                 self._drive(process, messages, model, reasoning_effort),
                 timeout=self.timeout,
             )
+        except FerramentaEscolhida as escolha:
+            await self._interromper_apos_escolha(process, escolha.params)
+            return "", self.last_reasoning_summary
         except asyncio.TimeoutError as exc:
             erro = CodexAppServerError(
                 f"Codex não concluiu em {self.timeout:g}s"
@@ -430,12 +508,14 @@ class CodexAppServerClient:
         model: str,
         reasoning_effort: Optional[str],
     ) -> tuple[str, Optional[str]]:
+        self.last_usage = None
         await self._request(process, "initialize", {
             "clientInfo": {
                 "name": "robinbandit",
                 "title": "RobinBandit",
                 "version": "0.5.0",
-            }
+            },
+            "capabilities": {"experimentalApi": True} if self._dynamic_tools else {},
         })
         await self._send(process, {"method": "initialized", "params": {}})
 
@@ -449,13 +529,19 @@ class CodexAppServerClient:
             "baseInstructions": system_instructions or guard,
             "developerInstructions": guard,
             "serviceName": "robinbandit",
+            **({"dynamicTools": self._dynamic_tools} if self._dynamic_tools else {}),
         })
         thread_obj = thread.get("thread") or {}
         thread_id = thread_obj.get("id") or thread_obj.get("sessionId")
         if not thread_id:
             raise CodexAppServerError("thread/start não retornou thread id")
+        self._thread_id = thread_id
 
         injected = _history_items(history)
+        if self._dynamic_tools:
+            for item in injected:
+                if item.get("type") == "function_call":
+                    item["name"] = nome_no_cli(item["name"])
         if injected:
             await self._request(process, "thread/inject_items", {
                 "threadId": thread_id,
@@ -466,13 +552,18 @@ class CodexAppServerClient:
         deltas: List[str] = []
         reasoning: List[str] = []
         turn_done = asyncio.Event()
-        turn_error: List[str] = []
+        turn_error: List[Any] = []
 
         def notification(message: Dict[str, Any]) -> None:
             nonlocal final_text
             method = str(message.get("method") or "")
             params = message.get("params") or {}
-            if method == "item/agentMessage/delta":
+            if method == "thread/tokenUsage/updated":
+                if params.get("threadId", thread_id) == thread_id:
+                    usado = _uso_de_tokens(params)
+                    if usado is not None:
+                        self.last_usage = usado
+            elif method == "item/agentMessage/delta":
                 delta = params.get("delta") or params.get("text")
                 if isinstance(delta, str):
                     deltas.append(delta)
@@ -480,6 +571,7 @@ class CodexAppServerClient:
                 delta = params.get("delta")
                 if isinstance(delta, str):
                     reasoning.append(delta)
+                    self.last_reasoning_summary = "".join(reasoning).strip() or None
             elif method == "item/completed":
                 item = params.get("item") or {}
                 if item.get("type") == "agentMessage":
@@ -492,7 +584,7 @@ class CodexAppServerClient:
                 status = str(turn.get("status") or "completed")
                 if status.lower() not in {"completed", "complete"}:
                     error = turn.get("error") or status
-                    turn_error.append(str(error))
+                    turn_error.append(error)
                 turn_done.set()
 
         effort = str(reasoning_effort or "medium").strip().lower()
@@ -518,11 +610,15 @@ class CodexAppServerClient:
             except json.JSONDecodeError:
                 continue
             if "method" in message and "id" in message:
+                self._capturar_pedido(message)
                 await self._decline_server_request(process, message)
             elif "method" in message:
                 notification(message)
 
         if turn_error:
+            limite = erro_do_turno(turn_error[-1])
+            if limite is not None:
+                raise limite
             raise CodexAppServerError(f"turno Codex falhou: {turn_error[-1]}")
         answer = final_text.strip() or "".join(deltas).strip()
         if not answer:
@@ -585,7 +681,7 @@ class CodexProvider:
     """Adaptador Robin para modelos da assinatura ChatGPT via Codex CLI."""
 
     # App-server aqui roda sem ferramentas próprias; tool calls ficam no host.
-    supports_tools = False
+    supports_tools = True
 
     def __init__(
         self,
@@ -605,9 +701,27 @@ class CodexProvider:
         self.last_attempted_model: Optional[str] = None
         self.last_reasoning_summary: Optional[str] = None
         self.last_quota = None
+        self._calls = contextvars.ContextVar(f"codex_calls_{id(self)}", default=None)
         self.last_tool_calls = None
         self.last_truncated = False
+        self._usage = contextvars.ContextVar(f"codex_usage_{id(self)}", default=None)
         self.model_failures: List[str] = []
+
+    @property
+    def last_tool_calls(self):
+        return self._calls.get()
+
+    @last_tool_calls.setter
+    def last_tool_calls(self, valor):
+        self._calls.set(valor)
+
+    @property
+    def last_usage(self) -> Optional[Dict[str, int]]:
+        return self._usage.get()
+
+    @last_usage.setter
+    def last_usage(self, valor: Optional[Dict[str, int]]) -> None:
+        self._usage.set(dict(valor) if isinstance(valor, dict) else None)
 
 
     @property
@@ -639,7 +753,9 @@ class CodexProvider:
         reasoning_effort: Optional[str] = None,
         strict_model: bool = False,
     ) -> str:
-        del temperature, tools  # app-server governa amostragem; ferramentas ficam no host.
+        del temperature
+        self.last_usage = None
+        self.last_tool_calls = None
         if not self.models:
             raise RuntimeError(f"{self.name}: nenhum modelo configurado")
         status = self.auth_status
@@ -676,6 +792,7 @@ class CodexProvider:
                 client = self._client_factory(binary=self.binary, timeout=self.timeout)
                 content, summary = await client.complete(
                     messages, model=model, reasoning_effort=effort,
+                    **({"tools": tools} if tools else {}),
                 )
                 _gasto = time.monotonic() - _comeco
                 if _gasto > _AVISO_DE_LENTIDAO_S:
@@ -683,6 +800,8 @@ class CodexProvider:
                                    self.name, model, _gasto, self.timeout)
                 self.last_model = self.last_attempted_model
                 self.last_reasoning_summary = summary
+                self.last_usage = getattr(client, "last_usage", None)
+                self.last_tool_calls = getattr(client, "last_tool_calls", None)
                 self._modelo_grudado = model
                 return content
             except Exception as exc:
@@ -692,6 +811,8 @@ class CodexProvider:
                     # O grudado caiu: solta, para nao insistir nele na proxima.
                     self._modelo_grudado = None
                 logger.warning("%s: modelo %s falhou: %s", self.name, model, exc)
+                if isinstance(exc, LimiteDoCodex):
+                    raise
         raise RuntimeError(f"{self.name}: todos os modelos falharam: {last_error}") from last_error
 
 

@@ -56,3 +56,23 @@ def test_app_aceita_atividade_injetada_no_painel():
     dados = TestClient(app).get("/painel/dados").json()
     assert dados["atividade"][0]["provedor"] == "groq"
     assert app.state.atividade is atividade
+
+
+def test_atividade_concluida_volta_apos_reinicio_sem_conteudo():
+    import json
+    atividade = Atividade(persistir=True, agora=lambda: 100.0)
+    evento = atividade.abrir("chatgpt_codex", contexto="conteudo que nao vai ao disco")
+    atividade.concluir(evento, status="sucesso", modelo="modelo-teste", uso={"entrada": 10, "prompt": "nao guardar"})
+    gravado = atividade._caminho().read_text(encoding="utf-8")
+    assert "conteudo que nao vai" not in gravado and "nao guardar" not in gravado
+    nova = Atividade(persistir=True, agora=lambda: 101.0)
+    assert nova.resumo()[0]["provedor"] == "chatgpt_codex"
+    assert nova.resumo()[0]["ha_segundos"] == 1
+    assert json.loads(gravado)[0]["uso"] == {"entrada": 10}
+
+
+def test_duas_instancias_compartilham_atividade_concluida():
+    a, b = Atividade(persistir=True), Atividade(persistir=True)
+    for instancia, nome in ((a, "um"), (b, "dois")):
+        instancia.concluir(instancia.abrir(nome), status="sucesso")
+    assert {i["provedor"] for i in a.resumo()} == {"um", "dois"}

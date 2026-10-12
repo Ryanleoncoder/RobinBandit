@@ -220,6 +220,13 @@ def build_provider(
         provider.name = runtime_name
         return provider
 
+    if adapter == "chatgpt":
+        from ..accounts.openai_oauth import situacao
+        from .chatgpt_provider import ChatGPTProvider
+        if not configured_models or not situacao()["configurada"]:
+            return None
+        return ChatGPTProvider(configured_models, name=runtime_name, timeout=spec.get("timeout", 110))
+
     if adapter == "claude_code":
         from .claude_code_provider import ClaudeCodeProvider, claude_code_auth_status
 
@@ -237,6 +244,13 @@ def build_provider(
         return provider
 
     if adapter in {"codex", "codex_app_server"}:
+        if spec.get("login_direto"):
+            from ..accounts.openai_oauth import metodo, situacao
+            if metodo() == "direto":
+                from .chatgpt_provider import ChatGPTProvider
+                if not configured_models or not situacao()["configurada"]:
+                    return None
+                return ChatGPTProvider(configured_models, name=runtime_name, timeout=spec.get("timeout", 110))
         from .codex_provider import CodexProvider, codex_auth_status
 
         binary = _source_value(settings, str(spec.get("binary_env") or "")) or str(
@@ -445,7 +459,14 @@ def describe_from_config(config: RobinConfig, settings: Any = None) -> List[Dict
             binary = _source_value(settings, str(spec.get("binary_env") or "")) or str(
                 spec.get("binary") or "codex"
             ).strip()
-            has_auth = codex_auth_status(binary).configured
+            if spec.get("login_direto"):
+                from ..accounts.openai_oauth import metodo, situacao
+                has_auth = situacao()["configurada"] if metodo() == "direto" else codex_auth_status(binary).configured
+            else:
+                has_auth = codex_auth_status(binary).configured
+        elif adapter == "chatgpt":
+            from ..accounts.openai_oauth import situacao
+            has_auth = situacao()["configurada"]
         elif adapter == "claude_code":
             from .claude_code_provider import claude_code_auth_status
             binary = _source_value(settings, str(spec.get("binary_env") or "")) or str(

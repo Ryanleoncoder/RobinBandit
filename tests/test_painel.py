@@ -165,7 +165,7 @@ def test_estrategia_diz_o_que_cada_uma_faz():
     """"adaptive" e "tier" nao explicam nada sozinhas. Quem escolhe precisa
     saber que uma deixa o aprendizado passar por cima do tier e a outra nao."""
     dados = _cliente().get("/config").json()
-    assert set(dados["estrategias"]) == {"adaptive", "tier", "fixed", "round_robin"}
+    assert set(dados["estrategias"]) == {"adaptive", "tier", "fixed", "round_robin", "classifier"}
     assert "qualidade" in dados["estrategias"]["adaptive"]
     assert "tier 1" in dados["estrategias"]["tier"]
     assert "ordem exata" in dados["estrategias"]["fixed"]
@@ -298,8 +298,34 @@ def test_tela_de_provedores_separa_cadeia_do_catalogo():
     js = (pasta / "painel.js").read_text(encoding="utf-8")
 
     assert 'id="filtro-provedores"' in html
-    assert "provedoresDeTodos || p.na_cadeia" in js
+    assert "marcarBusca(el.parentElement, item, item.na_cadeia)" in js
     assert "porTier[n] && porTier[n].length" in js
+    import shutil
+    import subprocess
+    import pytest
+    if not shutil.which("node"):
+        pytest.skip("A verificação do filtro em execução usa Node.")
+    script = """
+const fs = require('fs'), vm = require('vm'), assert = require('assert');
+const ativos = [{dataset:{busca:'provedor um',naCadeia:'1'}},{dataset:{busca:'provedor dois',naCadeia:'0'}}];
+const elementos = {};
+const contexto = {config:{estrategia:'adaptive'},provedoresDeTodos:false,modelosDeTodos:false,contasDeTodos:false,
+ L:(pt,en)=>pt, $:id=>elementos[id]||(elementos[id]={}), document:{
+  querySelector:()=>({dataset:{tela:'provedores'}}),
+  querySelectorAll:s=>s==='#tiers .grade > div'?ativos:[]}};
+vm.createContext(contexto);
+vm.runInContext(fs.readFileSync(process.argv[1],'utf8'),contexto);
+vm.runInContext('aplicarBusca()',contexto);
+assert.equal(ativos[0].hidden,false); assert.equal(ativos[1].hidden,true);
+contexto.provedoresDeTodos=true;
+vm.runInContext('aplicarBusca()',contexto);
+assert.equal(ativos[0].hidden,false); assert.equal(ativos[1].hidden,false);
+contexto.provedoresDeTodos=false;
+vm.runInContext("consultaProvedor='dois';aplicarBusca()",contexto);
+assert.equal(ativos[0].hidden,true); assert.equal(ativos[1].hidden,false);
+"""
+    resultado = subprocess.run(["node", "-e", script, str(pasta / "busca.js")], capture_output=True, text=True)
+    assert resultado.returncode == 0, resultado.stderr
 
 
 def test_rotas_normal_e_reforcada_ficam_em_provedores():

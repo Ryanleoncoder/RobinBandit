@@ -110,8 +110,8 @@ class ProviderRouter:
         self._weights_by_context = weights or {}
         self._inflight: Dict[str, int] = {}
         self._strategy = str(strategy or "adaptive").lower()
-        if self._strategy not in {"adaptive", "tier", "fixed", "round_robin"}:
-            raise ValueError("strategy deve ser adaptive, tier, fixed ou round_robin")
+        if self._strategy not in {"adaptive", "tier", "fixed", "round_robin", "classifier"}:
+            raise ValueError("strategy deve ser adaptive, tier, fixed, round_robin ou classifier")
         self._cost_penalties = dict(cost_penalties or {})
         self._profiles = dict(profiles or {})
 

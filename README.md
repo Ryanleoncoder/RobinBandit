@@ -22,8 +22,8 @@ pipx install "robinbandit[server,yaml,providers]"
 robinbandit serve
 ```
 
-Só isso. O painel abre sozinho no navegador. Claude Code e ChatGPT Codex entram
-quando suas sessões de CLI já estão autenticadas; provedores por API só entram
+Só isso. O painel abre sozinho no navegador. Em Credenciais, os botões guiam
+o login do Claude Code e do Codex pelo cliente oficial. Provedores por API só entram
 com credencial, e serviços anônimos exigem ativação explícita. Sem `pipx`?
 `pip install` funciona igual.
 
@@ -54,7 +54,7 @@ O projeto nasceu no [CX-GAME](https://github.com/Ryanleoncoder/CX-GAME), como ro
 [Credenciais](#credenciais-e-secrets) · [Painel](#painel) ·
 [Três protocolos](#três-protocolos-um-router) · [CLI](#cli)
 
-**Sem chave de API** · [ChatGPT Codex](#chatgpt-codex-oauth) ·
+**Sem chave de API** · [ChatGPT direto](#chatgpt-direto) · [ChatGPT Codex](#chatgpt-codex-oauth) ·
 [Claude Code](#claude-code-assinatura)
 
 ## O problema
@@ -345,6 +345,29 @@ Sentury, Dedicado usa `strict` e termina sem fallback quando a conta escolhida
 não está disponível. Alterar uma chave reconstrói os adaptadores do Sentury sem
 exigir reinício.
 
+#### ChatGPT direto
+
+ChatGPT aparece uma vez no catálogo. Com a opção `auth`, a aba Credenciais
+oferece Continuar com ChatGPT e Usar Codex CLI no mesmo cartão. São duas
+formas de conexão com a mesma assinatura, não duas cotas independentes. O login
+abre no navegador padrão e não exige Codex, Desktop ou extensão. Instale a
+opção da pasta local com `pip install -e ".[server,yaml,providers,auth]"`.
+
+A conexão usa o plano elegível da pessoa pela Responses API pública. Você
+pode adicionar contas, escolher a ativa e desconectar. Os modelos disponíveis
+vêm da conta selecionada. A autorização fica protegida pelo DPAPI no Windows;
+no Linux e macOS, o arquivo é restrito ao usuário, sem criptografia. Nenhum
+token volta ao painel ou entra na configuração dos provedores.
+
+O identificador `chatgpt_codex` continua valendo nas configurações existentes,
+também quando a conexão é direta. O método escolhido aparece no cartão. Sair
+da conexão direta não ativa outra conta do CLI sem sua escolha.
+
+Os limites são compartilhados com os outros usos do plano. Confira uso e
+permissões nas configurações do ChatGPT. Aplicativos pagos ou hospedados para
+terceiros têm requisitos distintos do aplicativo local open source.
+[Conexão oficial](https://developers.openai.com/siwc/token-sharing-open-source).
+
 #### ChatGPT Codex (OAuth)
 
 O adapter `codex_app_server` é a exceção intencional ao modelo de `api_key_env`:
@@ -386,8 +409,8 @@ da sessão, e o Robin nunca abre `~/.claude/.credentials.json`.
 
 ```bash
 npm install -g @anthropic-ai/claude-code
-claude          # login na primeira vez
-claude --version
+claude auth login
+claude auth status
 ```
 
 O binário também é encontrado dentro da extensão do editor
@@ -396,12 +419,15 @@ onde ele fica quando você usa o Claude Code pelo VS Code sem instalar o pacote
 global. `CLAUDE_CODE_BIN` aponta para outro executável;
 `CLAUDE_CODE_MODELS` sobrescreve a lista por CSV.
 
-Cada chamada roda com `--allowed-tools ""`: aqui o Claude Code é provedor de
+Cada chamada roda com `--tools ""`: aqui o Claude Code é provedor de
 modelo, e o loop de ferramentas continua sendo do agente hospedeiro. Dois loops
 no mesmo turno disputariam a mesma execução.
 
-O que isso destrava é o trabalho pesado, como contexto de 1M e raciocínio
-longo, sem chave de API e sem cota por token, pela assinatura que você já paga.
+O painel abre o login do executável oficial e consulta seu estado, sem ler,
+copiar ou renovar tokens. Ter o CLI instalado não significa estar conectado.
+O Desktop não é obrigatório. O uso de assinatura mantém as condições do
+Claude Code; não é um login Claude.ai próprio do RobinBandit.
+[Condições de integração](https://code.claude.com/docs/en/legal-and-compliance).
 
 ![Janelas de assinatura: chatgpt_codex e claude_code com o tempo restante do bloco de 5h](docs/imagens/painel-janelas.png)
 
@@ -455,14 +481,50 @@ Uma página, servida pelo próprio pacote. Mostra a ordem de agora, quem pode
 responder, quem está em espera, tokens, custo informado e o motivo de cada
 mudança na fila.
 
+Em Provedores, Modelos e Credenciais, a busca fica junto dos filtros. Ela
+encontra provedores, modelos, contas e nomes de variáveis, inclusive fora da
+cadeia atual, sem apagar os campos que você já preencheu.
+
 São sete abas. O que cada uma resolve:
+
+Em Provedores, Configuração do classificador permite preparar caixas por complexidade,
+escolher modelos do catálogo por clique ou arrasto e ordenar as tentativas da
+esquerda para a direita. Salvar configuração guarda as caixas localmente,
+sem alterar a rota ativa. Um único seletor no topo define o modo de roteamento.
+Ao escolher Classificador, aparecem somente a classificação e os blocos;
+Normal, Reforçado e a ordem dos outros modos não aparecem nessa configuração.
+Configuração, catálogo e contextos dos blocos podem ser recolhidos.
+O contexto abre um editor flutuante, sem alterar a posição ou altura dos blocos.
+O modo pode ser escolhido com a configuração incompleta; nesse caso, a rota
+recusa chamadas até você salvar o classificador e modelos nos blocos. Não usa
+modelos do Rodízio para preencher essa ausência.
+
+Quem classifica distingue o classificador especializado de uma LLM alternativa.
+Nenhum especializado está conectado; o ambiente local permanece desativado.
+Na alternativa LLM, você pode usar modelos do catálogo ou informar IDs manuais,
+acrescentando principal e reservas sem apagar as escolhas anteriores. A seleção é salva,
+mas não ativa chamadas. Cada caixa aceita um contexto seu, como a preferência
+pelos modelos daquele bloco para programação. O contrato usa o pedido, o
+contexto relevante e essas preferências; a saída aceita é somente `SIMPLE`,
+`STANDARD`, `COMPLEX` ou `CRITICAL`, sem explicação. O RB valida o rótulo, sem
+classificar por palavras. Arrastar para o rosto acrescenta uma LLM principal
+ou reserva. Clique no rosto para ver a ordem, reordenar ou remover modelos.
+Testar classificação fica junto da cena, com uma pergunta pronta e editável.
+Usa o rascunho atual e chama apenas as classificadoras,
+sem executar os modelos das caixas nem salvar ou ativar o modo. Pode consumir
+cota da conta escolhida. As reservas compartilham um prazo total de 30 segundos.
+
+Recomendamos começar com modelos Flash ou equivalentes leves e comparar
+latência e acertos. A família Flash-Lite é apresentada pelo provedor para
+[classificação de alto volume](https://ai.google.dev/gemini-api/docs/models/gemini-2.5-flash-lite).
+Isso não garante que seja a melhor opção para os seus pedidos.
 
 ### Provedores: escolha a política da fila
 
 ![Rotas Normal e Reforçada e os modos Adaptativo, Prioridade por tier, Lista fixa e Rodízio](docs/imagens/painel-provedores.png)
 
 Tier é um grupo, e vários provedores cabem no mesmo. A rota normal oferece
-quatro modos:
+cinco modos:
 
 * **Adaptativo** (`strategy: adaptive`): o tier é um bônus. Um provedor do
   tier 2 que vem respondendo melhor passa na frente do tier 1.
@@ -473,6 +535,10 @@ quatro modos:
   passa ao próximo depois de indisponibilidade ou falha.
 * **Rodízio** (`strategy: round_robin`) alterna a primeira tentativa depois de
   cada chamada real. Abrir o painel não move o cursor.
+* **Classificador** (`strategy: classifier`) usa a LLM escolhida para decidir
+  a caixa. Tenta seus modelos na ordem e, se todos falharem, passa ao nível
+  mais próximo, preferindo o mais alto em empate. Se a classificação falhar,
+  usa o Adaptativo. Reforçado, Dedicado e rotas auxiliares não são reclassificados.
 
 Reforçado é separado: uma chamada pode pedir uma fila de contas preferidas com
 `X-RobinBandit-Mode: reinforced`. Se todas falharem, ela volta para a rota
@@ -512,6 +578,7 @@ Os dados locais ficam separados por assunto em `~/.robinbandit/`:
 | `ranking.json` | aprendizado do roteador |
 | `historico.json` | saúde diária dos últimos 60 dias |
 | `uso.json` | tokens e custo informado dos últimos 365 dias |
+| `atividade.json` | últimas 60 chamadas concluídas, sem conteúdo das conversas |
 | `janelas.json` | blocos de uso das assinaturas |
 
 Uma instalação antiga que ainda mistura preferências em `contas.json` é
@@ -525,6 +592,22 @@ Nenhum desses arquivos vai para o repositório.
 O painel separa tokens de entrada, saída e cache, mostra chamadas e mantém um
 calendário de 365 dias. Custo em USD aparece quando o próprio provedor o inclui
 na resposta. Sem preço informado, a tela diz isso em vez de mostrar `$0.00`.
+
+A chamada também é contada quando o provedor não informa tokens. O painel
+separa essas chamadas das medições recebidas: dado ausente não vira consumo
+zero. O Sentury e o servidor do RB compartilham esses registros quando usam
+a mesma pasta de estado. O histórico não recupera medições que nunca foram
+registradas. A atividade guarda provedor, modelo, estado e duração, sem
+prompts, respostas ou credenciais.
+
+A tela Uso atualiza ao abrir, depois do teste de classificação e enquanto
+está visível. Raciocínio aparece separado quando informado pelo provedor.
+Diferenças de totais antigos ficam como tokens sem detalhamento, sem estimativa.
+Na classificação restrita do Gemini 2.5 Flash e Flash-Lite, o RB desliga
+thinking, limita a saída a 16 tokens e usa um enum nativo de quatro níveis.
+Esse teto é de saída: o pedido, os critérios e os contextos também usam tokens.
+Respostas normais não recebem esses limites. Outros modelos mantêm o comportamento
+compatível com seu adaptador; não se presume que todos permitam desligar thinking.
 
 Em tokens, e não em reais, de propósito. Preço muda por modelo, por região e
 por promoção, e um custo calculado com tabela velha dá a confiança de um número

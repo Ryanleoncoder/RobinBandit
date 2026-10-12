@@ -50,6 +50,7 @@ class Conta:
     # oficial e portanto não possuem API key que o Robin deva guardar.
     auth_type: str = ""
     auth_binary: str = "codex"
+    login_direto: bool = False
     # Quem pos a conta ali: o usuario (painel, SENTURY_ACCOUNTS) ou o proprio
     # Robin (descoberta pelo provedor do YAML, conta de fabrica). "Conta paga
     # sem chave" so e engano quando alguem DECLAROU que paga; numa instalacao
@@ -74,6 +75,10 @@ class Conta:
 
     @property
     def configurada(self) -> bool:
+        from .openai_oauth import metodo
+        if self.auth_type == "chatgpt_oauth" or (self.login_direto and metodo() == "direto"):
+            from .openai_oauth import situacao
+            return situacao()["configurada"]
         if self.por_cli:
             return bool(self._status_do_cli().configured)
         return bool(self.key_env and _ler_segredo(self.key_env))
@@ -85,7 +90,12 @@ class Conta:
     def para_painel(self) -> Dict[str, Any]:
         """Visão segura para o painel, sem retornar valores secretos."""
         from . import secrets
-        if self.por_cli:
+        from .openai_oauth import metodo
+        if self.auth_type == "chatgpt_oauth" or (self.login_direto and metodo() == "direto"):
+            from .openai_oauth import situacao as status_oauth
+            seguro = status_oauth()
+            situacao = {"configurada": seguro["configurada"], "origem": "chatgpt_oauth", "dica": ""}
+        elif self.por_cli:
             status = self._status_do_cli()
             situacao = {
                 "configurada": bool(status.configured),
@@ -101,6 +111,7 @@ class Conta:
             "label": self.label or self.id,
             "key_env": self.key_env,      # o NOME ajuda a debugar config
             "auth_type": self.auth_type,
+            "login_direto": self.login_direto,
             "por_cli": self.por_cli,
             "models": list(self.models),
             "paga": self.paga,
@@ -198,6 +209,8 @@ def carregar_catalogo(bruto: Any) -> CatalogoDeContas:
             paga=bool(item.get("paga")),
             auth_type=auth_type,
             auth_binary=str(item.get("auth_binary") or "codex").strip(),
+            login_direto=bool(item.get("login_direto") or (_FONTE_DE_CONFIG and
+                              (_FONTE_DE_CONFIG.providers.get(provider) or {}).get("login_direto"))),
         ))
 
     catalogo = CatalogoDeContas(contas)
@@ -283,6 +296,7 @@ def descobrir_do_ambiente(
                 "paid", "credits",
             },
             auth_type=auth_type,
+            login_direto=bool(spec.get("login_direto")),
             auth_binary=(
                 _valor_de_config(settings, str(spec.get("binary_env") or ""))
                 or str(spec.get("binary") or "codex").strip()

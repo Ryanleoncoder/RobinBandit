@@ -178,7 +178,10 @@ _exigencias = _ChainBase.exigencias
 _para_provedor = _ChainBase.para_provedor
 
 
-class ChainProvider:
+from .falhas import MotivosDaChamada
+
+
+class ChainProvider(MotivosDaChamada):
     """Encadeia provedores de LLM e tenta cada um até um responder. O
     FallbackProvider nunca lança exceção, então deixá-lo por último garante que
     o chat nunca quebra por falha de LLM. Nenhuma regra do Harness depende de
@@ -194,7 +197,8 @@ class ChainProvider:
 
     def __init__(self, providers: List, router=None,
                  active_effort: Optional[Callable[[], Optional[str]]] = None,
-                 provider_effort_for: Optional[Callable[..., Optional[str]]] = None):
+                 provider_effort_for: Optional[Callable[..., Optional[str]]] = None,
+                 activity=None):
         self.providers = [p for p in providers if p is not None]
         if not self.providers:
             raise ValueError("ChainProvider precisa de pelo menos um provedor")
@@ -213,6 +217,7 @@ class ChainProvider:
                 "routing": routing,
             }))
         self.router = router
+        self.activity = activity
         self._active_effort = active_effort or (lambda: None)
         self._provider_effort_for = provider_effort_for or (lambda level, mode=None: level)
         self._last_model_ctx = contextvars.ContextVar(
@@ -296,6 +301,7 @@ class ChainProvider:
         # nascer com invalidação por dado, não por texto de entrada.
         ultra = _ultra_provider_ctx.get()
         ultra_active = ultra is not None
+        self._abrir_motivos()
         last_error = None
         self.last_model = None
         self.last_usage = None
@@ -338,6 +344,19 @@ class ChainProvider:
         if override and not ultra_active:
             selector = getattr(self.router, "selection", None)
             route_selection = selector("reforçado", override) if callable(selector) else None
+
+        if not ultra_active and not override and (complexity or "").upper() != "CLASSIFY":
+            from ..accounts.account_config import estrategia
+            roteador = getattr(self.router, "router", self.router)
+            config = getattr(self.router, "_classification_config", None)
+            if config is not None and estrategia(getattr(roteador, "_strategy", "adaptive")) == "classifier":
+                from .classificador_execucao import responder
+                resposta = await responder(self, config, messages, temperature, complexity, tools, efforce)
+                if resposta is not None:
+                    _anotar_resposta(texto=resposta, tool_calls=self.last_tool_calls,
+                                    modelo=self.last_model, provedor=self.last_provider,
+                                    complexidade=complexity, perfil=profile)
+                    return resposta
 
         # Dedicado com imagem e a conta escolhida não enxerga: o Router tiraria
         # a conta do turno e, estrito, ninguém responderia. Quem enxerga no
@@ -431,6 +450,7 @@ class ChainProvider:
                 end = getattr(self.router, "end", None)
                 if callable(begin):
                     begin(pname)
+                evento = self.activity.abrir(pname, modo=getattr(route_selection, "mode", "router"), tentativa=tentativa + 1) if self.activity else None
                 try:
                     # Só manda o que o provedor aceita: `tools` e `reasoning_effort`
                     # são opcionais e nem todo provider os implementa.
@@ -440,7 +460,8 @@ class ChainProvider:
                                   route_selection and route_selection.mode == "strict"
                                   and pname == route_selection.provider
                               ),
-                              "tools": tools or None, "reasoning_effort": efforce}
+                              "tools": tools or None, "reasoning_effort": efforce,
+                              "falhas": self.ultimas_falhas if aceitos and "falhas" in aceitos else None}
                     kwargs = {k: v for k, v in extras.items()
                               if v is not None and (aceitos is None or k in aceitos)}
                     try:
@@ -454,7 +475,8 @@ class ChainProvider:
                     # Tokens do provedor que respondeu, somados no turno.
                     self.last_usage = getattr(provider, "last_usage", None)
                     _somar_uso(self.last_usage)
-                    _anotar_o_gasto(self.last_provider, self.last_usage)
+                    if not getattr(provider, "e_aviso", False):
+                        _anotar_o_gasto(self.last_provider, self.last_usage)
                     self.last_reasoning_summary = getattr(provider, "last_reasoning_summary", None)
                     self.last_tool_calls = getattr(provider, "last_tool_calls", None)
                     record_model_failure = getattr(self.router, "record_model_failure", None)
@@ -483,8 +505,18 @@ class ChainProvider:
                         perfil=profile,
                         ms=int(latency_ms),
                     )
+                    if evento:
+                        self.activity.concluir(evento, status="sucesso", provedor=self.last_provider,
+                                                modelo=self.last_model, duracao_ms=latency_ms, uso=self.last_usage)
                     return result
+                except asyncio.CancelledError:
+                    if evento:
+                        self.activity.concluir(evento, status="interrompido", duracao_ms=(time.perf_counter() - inicio) * 1000)
+                    raise
                 except Exception as exc:
+                    if evento:
+                        self.activity.concluir(evento, status="falha", modelo=getattr(provider, "last_attempted_model", None),
+                                                duracao_ms=(time.perf_counter() - inicio) * 1000, motivo=classify_error(exc))
                     last_error = exc
                     record_model_failure = getattr(self.router, "record_model_failure", None)
                     failed_models = list(dict.fromkeys(getattr(provider, "model_failures", []) or []))
@@ -492,6 +524,7 @@ class ChainProvider:
                         for failed_model in failed_models:
                             record_model_failure(pname, failed_model)
                     tipo = classify_error(exc)
+                    self._registrar_falha(pname, tipo, exc)
                     if transitorio(tipo) and tentativa < self._RATE_LIMIT_RETRIES:
                         espera = self._RATE_LIMIT_BACKOFF * (tentativa + 1)
                         logger.warning("Provedor %s com falha passageira (%s); aguardando %.1fs e 1 retry...",
@@ -526,7 +559,8 @@ class ChainProvider:
         # ficava sem a resposta daquela chamada e não sabia que ali o modelo falhou.
         _anotar_resposta(texto="", erro=str(last_error)[:500], tipos=list(tipos_das_falhas),
                          complexidade=complexity, perfil=profile)
-        raise FalhaDaCadeia(f"Todos os provedores de LLM falharam: {last_error}", tipos_das_falhas) from last_error
+        raise FalhaDaCadeia(f"Todos os provedores de LLM falharam: {last_error}", tipos_das_falhas,
+                           self.ultimas_falhas) from last_error
 
     async def _descrever_imagens(self, messages: List[Dict], candidatos: List, complexity: Optional[str],
                                  profile: Optional[str]) -> List[Dict]:
@@ -615,6 +649,7 @@ class ChainProvider:
                 success(pname, (time.perf_counter() - inicio) * 1000.0,
                         model=getattr(provider, "last_model", None), complexity=complexity, profile=profile)
             _somar_uso(getattr(provider, "last_usage", None))
+            _anotar_o_gasto(pname, getattr(provider, "last_usage", None))
             quem = getattr(provider, "last_model", None) or pname
             _DESCRICOES[chave] = (resposta, quem)
             while len(_DESCRICOES) > _DESCRICOES_TETO:

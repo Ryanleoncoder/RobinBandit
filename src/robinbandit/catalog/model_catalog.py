@@ -212,6 +212,15 @@ async def fetch_model_catalog(
 ) -> Dict[str, Any]:
     """Busca o catálogo disponível do provedor, com cache de cinco minutos."""
     key = str(provider or "").strip().lower()
+    spec = dict(config.providers.get(key) or {})
+    from ..accounts.openai_oauth import metodo
+    if spec.get("adapter") == "chatgpt" or (spec.get("login_direto") and metodo() == "direto"):
+        from ..providers.chatgpt_provider import listar_modelos
+        try:
+            modelos = [_normalizar(key, m) for m in await listar_modelos()]
+            return {"provider": key, "source": "live", "fetched_at": time.time(), "models": modelos, "warnings": []}
+        except Exception:
+            return _fallback(config, key, "Conecte a conta ChatGPT para consultar seus modelos.")
     if key not in {"openrouter", "groq", "chatgpt_codex"}:
         return _fallback(config, key, "Este provedor ainda nao expoe catalogo vivo; exibindo a configuracao local.")
     cached = _CACHE.get(key)

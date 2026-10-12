@@ -96,6 +96,7 @@ class RobinConfig:
     secrets: Dict[str, Any] = field(default_factory=dict)
     accounts: Dict[str, Any] = field(default_factory=dict)
     erros: Dict[str, Any] = field(default_factory=dict)
+    routes: Dict[str, Dict[str, Any]] = field(default_factory=dict)
 
     @classmethod
     def from_mapping(cls, raw: Mapping[str, Any]) -> "RobinConfig":
@@ -140,9 +141,11 @@ class RobinConfig:
             if "models" in item and not isinstance(item["models"], (list, tuple, Mapping)):
                 raise TypeError(f"providers.{key}.models deve ser lista ou mapa")
             auth_type = str(item.get("auth_type") or "").strip().lower()
-            if auth_type and auth_type not in {"api_key", "codex_cli", "claude_cli"}:
+            if auth_type and auth_type not in {"api_key", "codex_cli", "claude_cli", "chatgpt_oauth"}:
                 raise ValueError(f"providers.{key}.auth_type desconhecido: {auth_type}")
             adapter = str(item.get("adapter") or "openai").strip().lower()
+            if adapter == "chatgpt" and auth_type != "chatgpt_oauth":
+                raise ValueError(f"providers.{key} com adapter ChatGPT exige auth_type: chatgpt_oauth")
             if adapter in {"codex", "codex_app_server"} and auth_type != "codex_cli":
                 raise ValueError(
                     f"providers.{key} com adapter Codex exige auth_type: codex_cli"
@@ -164,9 +167,9 @@ class RobinConfig:
 
         last_resort = routing.get("last_resort")
         strategy = str(routing.get("strategy", "adaptive")).strip().lower()
-        if strategy not in {"adaptive", "tier", "fixed", "round_robin"}:
+        if strategy not in {"adaptive", "tier", "fixed", "round_robin", "classifier"}:
             raise ValueError(
-                "routing.strategy deve ser adaptive, tier, fixed ou round_robin"
+                "routing.strategy deve ser adaptive, tier, fixed, round_robin ou classifier"
             )
         chain_order = [str(v).strip().lower() for v in (routing.get("chain_order") or []) if str(v).strip()]
         unknown = [key for key in chain_order if key not in providers]
@@ -219,6 +222,26 @@ class RobinConfig:
                 parsed_targets.append({"provider": provider, "model": model})
             profiles[str(profile).strip().lower()] = parsed_targets
 
+        routes = {}
+        routes_raw = raw.get("routes") or {}
+        if not isinstance(routes_raw, Mapping):
+            raise TypeError("routes deve ser um mapa")
+        for nome, spec in routes_raw.items():
+            if not isinstance(spec, Mapping):
+                raise TypeError(f"routes.{nome} deve ser um mapa")
+            ordem = spec.get("chain_order")
+            if not isinstance(ordem, list) or not ordem or not all(isinstance(k, str) and k in providers for k in ordem):
+                raise ValueError(f"routes.{nome}.chain_order exige provedores conhecidos")
+            if len(ordem) != len(set(ordem)):
+                raise ValueError(f"routes.{nome}.chain_order contém duplicados")
+            modelos = spec.get("models") or {}
+            if not isinstance(modelos, Mapping) or any(k not in ordem for k in modelos):
+                raise ValueError(f"routes.{nome}.models deve apontar para provedores da rota")
+            if any(not isinstance(v, list) or not v or not all(isinstance(m, str) and m.strip() for m in v)
+                   for v in modelos.values()):
+                raise ValueError(f"routes.{nome}.models exige listas de modelos não vazias")
+            routes[str(nome)] = {"chain_order": list(ordem), "models": {k: list(v) for k, v in modelos.items()}}
+
         secrets_raw = raw.get("secrets") or {}
         if not isinstance(secrets_raw, Mapping):
             raise TypeError("secrets deve ser um mapa")
@@ -234,7 +257,7 @@ class RobinConfig:
             if any(field in account for field in ("api_key", "secret", "token")):
                 raise ValueError("accounts guarda key_env, nunca segredo literal")
             auth_type = str(account.get("auth_type") or "").strip().lower()
-            if auth_type and auth_type not in {"api_key", "codex_cli", "claude_cli"}:
+            if auth_type and auth_type not in {"api_key", "codex_cli", "claude_cli", "chatgpt_oauth"}:
                 raise ValueError(
                     f"accounts.items[{index}].auth_type desconhecido: {auth_type}"
                 )
@@ -260,6 +283,7 @@ class RobinConfig:
                 "tiers": dict(accounts_raw.get("tiers") or {}),
             },
             erros=erros,
+            routes=routes,
         )
 
     def provider_capabilities(self, key: str) -> set:

@@ -148,6 +148,7 @@ def create_app(
     *,
     include_interface: bool = True,
     dependencies: Optional[List[Any]] = None,
+    on_accounts_changed=None,
 ) -> FastAPI:
     """Monta o app HTTP sobre os provedores e o router."""
     app = FastAPI(
@@ -157,15 +158,31 @@ def create_app(
         redoc_url="/redoc" if include_interface else None,
         openapi_url="/openapi.json" if include_interface else None,
     )
+    from .logins import rotas as rotas_de_login
+    from .classificacao import rotas as rotas_de_classificacao
+    if config is not None and router is not None:
+        router._classification_config = config
+
+    def atualizar_contas():
+        if on_accounts_changed:
+            on_accounts_changed()
+        elif config is not None:
+            from ..providers import build_provider_set
+            providers[:] = list(build_provider_set(config).values())
+
+    rotas_login = rotas_de_login(config, atualizar_contas)
+    app.state.logins = rotas_login.gestor_login
+    app.include_router(rotas_login)
     # id da resposta -> (provedor, contexto), para /feedback.
     decisoes: "OrderedDict[str, tuple]" = OrderedDict()
     clientes = _Clientes()
     app.state.clientes = clientes
     from ..state.atividade import Atividade
 
-    atividade = activity or Atividade()
+    atividade = activity or Atividade(persistir=True)
     # Usado por testes/demos sem expor rota de escrita.
     app.state.atividade = atividade
+    app.include_router(rotas_de_classificacao(config, atividade))
 
     def rota_da_chamada(request: Request):
         """Traduz o modo HTTP sem sequestrar o campo `model` do cliente."""
@@ -443,7 +460,7 @@ def create_app(
         }
 
     @app.get("/logos/{arquivo}")
-    async def logo(arquivo: str):
+    async def logo(arquivo: str, tema: str = "original"):
         """Serve logos empacotadas dos provedores."""
         from pathlib import Path as _Path
 
@@ -456,6 +473,10 @@ def create_app(
         alvo = (base / nome).resolve()
         if base.resolve() not in alvo.parents or not alvo.is_file():
             raise HTTPException(status_code=404, detail="logo nao encontrada")
+        if tema == "escuro" and alvo.suffix.lower() == ".svg":
+            from ..ui.logos import para_fundo_escuro
+            from fastapi.responses import Response
+            return Response(para_fundo_escuro(alvo.read_bytes()), media_type="image/svg+xml")
         return FileResponse(alvo)
 
     @app.get("/logos")
@@ -501,6 +522,9 @@ def create_app(
                 "na_cadeia": nome in escolhida,
                 "custo": str(spec.get("cost_class") or ""),
                 "auth": str(spec.get("auth_type") or ("api_key" if spec.get("api_key_env") else "")),
+                "key_env": str(spec.get("api_key_env") or ""),
+                "key_url": str(spec.get("key_url") or ""),
+                "configurada": nome in na_cadeia,
                 # A ordem dos modelos é a ordem de tentativa DENTRO do provedor:
                 # "no Claude Code, tente Opus, depois Sonnet, depois Haiku".
                 "modelos": modelos_escolhidos.get(nome) or do_yaml,
@@ -532,6 +556,10 @@ def create_app(
                     "Alterna o primeiro provedor a cada tentativa concluída, "
                     "distribuindo a carga entre os disponíveis."
                 ),
+                "classifier": (
+                    "O classificador avalia o pedido e escolhe a caixa. Tenta os modelos na ordem; "
+                    "se a caixa falhar, tenta o nível disponível mais próximo."
+                ),
             },
             "tiers": {
                 "1": "Prioridade alta",
@@ -550,6 +578,9 @@ def create_app(
         from ..accounts import account_config
 
         try:
+            if payload.valor == "classifier":
+                if config is None:
+                    raise ValueError("O modo Classificador exige um catálogo configurado.")
             escolhida = account_config.definir_estrategia(payload.valor)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc

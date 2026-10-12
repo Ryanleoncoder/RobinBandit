@@ -34,3 +34,35 @@ O grupo do Reforçado/Dedicado declara o que as contas dele fazem (`vision`, …
 | Ninguém enxerga | O Router diz que ninguém lê imagem. | Erro dizendo que a conta não lê imagem e ninguém no Router lê para descrever. |
 
 Num grupo com várias contas, só as que enxergam recebem a imagem. A descrição fica guardada pela imagem e pelo texto (32 entradas): as várias chamadas de um turno não descrevem a mesma imagem de novo. O print do computer use segue a mesma regra: no Dedicado sem visão, o Router descreve o print direto, sem passar pela conta.
+
+## Rotas nomeadas para trabalho auxiliar
+
+Uma rota tem sua própria fila de provedores e seus próprios modelos. Ela pode
+ser usada para resumir, compactar histórico ou criar um título sem usar o
+modelo escolhido para o turno principal. A seleção Dedicado do Sentury não
+é herdada por essa cadeia.
+
+```yaml
+routes:
+  auxiliar:
+    chain_order: [groq, gemini]
+    models:
+      groq: [openai/gpt-oss-20b]
+      gemini: [gemini-2.5-flash-lite]
+```
+
+```python
+from robinbandit import RobinConfig, build_route
+
+config = RobinConfig.from_yaml("robinbandit.yaml")
+auxiliar = build_route(config, "auxiliar")
+resumo = await auxiliar.complete([
+    {"role": "user", "content": "Resuma o texto fornecido."}
+], reasoning_effort="low")
+```
+
+`settings` é opcional. As credenciais continuam no cofre ou no ambiente;
+`models` define apenas os identificadores. Sem provedor disponível na rota,
+a montagem falha claramente, sem cair escondido no modelo principal.
+O chamador decide quais tarefas envia para ela. Declarar a rota não altera
+automaticamente o modelo das tarefas existentes.

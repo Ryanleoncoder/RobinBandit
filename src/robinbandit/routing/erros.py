@@ -180,6 +180,10 @@ def classificar(exc: Exception) -> str:
     `rate_limit_exceeded` no corpo, e contexto estourado vem como 400 com a
     explicacao so no corpo.
     """
+    for erro in _na_cadeia(exc):
+        tipo = getattr(erro, "tipo", None)
+        if isinstance(tipo, str) and tipo in COOLDOWN_PADRAO:
+            return tipo
     texto = _texto(exc)
     status = status_http(exc)
     if status is not None:

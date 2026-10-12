@@ -86,7 +86,8 @@ def _montar() -> str:
     # para a tradução ficar num arquivo próprio, onde uma chave sem par salta
     # aos olhos.
     pagina = _embutir(pagina, _TEXTOS, _ler("textos.js"), "</script")
-    pagina = _embutir(pagina, _SCRIPT, _ler("painel.js"), "</script")
+    scripts = "\n".join(_ler(nome) for nome in ("busca.js", "catalogo.js", "login.js", "classificador.js", "painel.js"))
+    pagina = _embutir(pagina, _SCRIPT, scripts, "</script")
     return pagina
 
 

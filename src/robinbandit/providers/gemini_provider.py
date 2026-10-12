@@ -1,4 +1,5 @@
 import logging
+import json
 from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
@@ -16,7 +17,8 @@ def _usage_gemini(data: Dict) -> Optional[Dict[str, int]]:
         return None
     entrada = int(bruto.get("promptTokenCount") or 0)
     saida = int(bruto.get("candidatesTokenCount") or 0)
-    total = int(bruto.get("totalTokenCount") or (entrada + saida))
+    raciocinio = int(bruto.get("thoughtsTokenCount") or 0)
+    total = int(bruto.get("totalTokenCount") or (entrada + saida + raciocinio))
     if not total:
         return None
     # Quanto da entrada veio do cache implicito. O Gemini cobra 10% por esses
@@ -26,6 +28,8 @@ def _usage_gemini(data: Dict) -> Optional[Dict[str, int]]:
     # errada aqui: recortar o prompt "para economizar" quebraria o cache.
     cacheado = int(bruto.get("cachedContentTokenCount") or 0)
     usado = {"entrada": entrada, "saida": saida, "total": total}
+    if "thoughtsTokenCount" in bruto or total == entrada + saida:
+        usado["raciocinio"] = raciocinio
     if cacheado:
         usado["cacheado"] = cacheado
     return usado
@@ -258,11 +262,18 @@ class GeminiProvider:
 
     async def complete(self, messages: List[Dict[str, str]], temperature: float = 0.2, complexity: Optional[str] = None,
                        preferred_model: Optional[str] = None,
-                       strict_model: bool = False, tools: Any = None) -> str:
+                       strict_model: bool = False, tools: Any = None,
+                       classification_labels: Optional[List[str]] = None) -> str:
         is_classify = (complexity or "").upper() == "CLASSIFY"
         payload = self._build_payload(
             messages, temperature, include_thoughts=not is_classify, tools=tools,
         )
+        classificacao_restrita = is_classify and classification_labels is not None
+        if classificacao_restrita:
+            if tools or not classification_labels or not all(isinstance(r, str) and r for r in classification_labels):
+                raise ValueError("Classificação restrita exige rótulos válidos e nenhuma ferramenta.")
+            payload["generationConfig"].update({"responseMimeType": "application/json",
+                "responseJsonSchema": {"type": "string", "enum": list(classification_labels)}})
         self.last_tool_calls = None
         last_error: Optional[Exception] = None
         self.last_reasoning_summary = None
@@ -297,6 +308,14 @@ class GeminiProvider:
                             min(model_token_budget(model, floor=512), 512)
                             if is_classify else model_token_budget(model, floor=4096)
                         )
+                        if classificacao_restrita:
+                            from ..routing.classificacao import contrato
+                            opcoes = contrato()["gemini"]
+                            sem_raciocinio = model in opcoes["sem_raciocinio"]
+                            payload["generationConfig"]["thinkingConfig"] = {"includeThoughts": False}
+                            if sem_raciocinio:
+                                payload["generationConfig"]["thinkingConfig"]["thinkingBudget"] = 0
+                            payload["generationConfig"]["maxOutputTokens"] = opcoes["max_output_tokens"] if sem_raciocinio else opcoes["max_output_tokens_com_raciocinio"]
                         response = await client.post(
                             GEMINI_URL.format(model=model),
                             headers={"x-goog-api-key": key},
@@ -309,6 +328,12 @@ class GeminiProvider:
                         if recusa is not None:
                             raise RecusaDoModelo(f"gemini:{model}", recusa)
                         visible_text, thought_summary = self._extract_parts_payload(data)
+                        if classificacao_restrita:
+                            rotulo = json.loads(visible_text)
+                            if not isinstance(rotulo, str) or rotulo not in classification_labels:
+                                raise ValueError("Gemini devolveu uma classificação fora do contrato.")
+                            self.last_model = f"gemini:{model}"
+                            return rotulo
                         if thought_summary:
                             self.last_reasoning_summary = thought_summary[:2400]
                         self.last_model = f"gemini:{model}"
