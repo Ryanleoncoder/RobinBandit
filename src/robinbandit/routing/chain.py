@@ -454,17 +454,20 @@ class ChainProvider(MotivosDaChamada):
                     return result
                 except Exception as exc:
                     latency_ms = (time.perf_counter() - inicio) * 1000.0
+                    from .falhas import identidade_da_falha
+                    self.last_provider, self.last_model = identidade_da_falha(provider, exc)
                     last_error = exc
                     failed_models = list(dict.fromkeys(getattr(provider, "model_failures", []) or []))
                     for failed_model in failed_models:
                         self.router.record_model_failure(pname, failed_model)
                     tipo = classify_error(exc)
-                    self._registrar_falha(pname, tipo, exc)
+                    self._registrar_falha(self.last_provider or pname, tipo, exc, self.last_model)
                     if evento:
                         self.activity.concluir(
                             evento,
                             status="falha",
-                            modelo=getattr(provider, "last_attempted_model", None),
+                            provedor=self.last_provider,
+                            modelo=self.last_model,
                             duracao_ms=latency_ms,
                             motivo=tipo,
                         )
@@ -476,7 +479,7 @@ class ChainProvider(MotivosDaChamada):
                                        pname, tipo, espera)
                         await asyncio.sleep(espera)
                         continue
-                    tipos_das_falhas.append(tipo)
+                    tipos_das_falhas.extend(getattr(exc, "tipos", None) or [tipo])
                     _soltar(pname)
                     if tipo == "content_policy":
                         recusas = _RECUSAS_DO_TURNO.get()
@@ -499,6 +502,7 @@ class ChainProvider(MotivosDaChamada):
                     break
                 finally:
                     self.router.end(pname)
-        anotar_resposta(texto="", erro=str(last_error)[:500], tipos=list(tipos_das_falhas))
+        anotar_resposta(texto="", erro=str(last_error)[:500], tipos=list(tipos_das_falhas),
+                        provedor=self.last_provider, modelo=self.last_model)
         raise FalhaDaCadeia(f"Todos os provedores de LLM falharam: {last_error}", tipos_das_falhas,
                            self.ultimas_falhas)

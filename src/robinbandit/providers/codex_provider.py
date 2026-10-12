@@ -756,11 +756,14 @@ class CodexProvider:
         del temperature
         self.last_usage = None
         self.last_tool_calls = None
+        self.last_model = None
+        self.last_attempted_model = None
+        from .erro_cli import classificar_cli
         if not self.models:
             raise RuntimeError(f"{self.name}: nenhum modelo configurado")
         status = self.auth_status
         if not status.configured:
-            raise RuntimeError(f"{self.name}: {status.detail}")
+            raise classificar_cli(RuntimeError(status.detail), "codex", self.name)
 
         models_to_try = list(self.models)
         if preferred_model and strict_model:
@@ -805,15 +808,17 @@ class CodexProvider:
                 self._modelo_grudado = model
                 return content
             except Exception as exc:
-                last_error = exc
+                last_error = classificar_cli(exc, "codex", self.name)
                 self.model_failures.append(model)
                 if self._modelo_grudado == model:
                     # O grudado caiu: solta, para nao insistir nele na proxima.
                     self._modelo_grudado = None
-                logger.warning("%s: modelo %s falhou: %s", self.name, model, exc)
+                logger.warning("%s: modelo %s falhou: %s", self.name, model, last_error)
                 if isinstance(exc, LimiteDoCodex):
                     raise
-        raise RuntimeError(f"{self.name}: todos os modelos falharam: {last_error}") from last_error
+                if getattr(last_error, "conta_inteira", False):
+                    raise last_error from exc
+        raise last_error
 
 
 __all__ = [
