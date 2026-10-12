@@ -59,8 +59,8 @@ class ChatGPTProvider:
     def last_model(self):
         return self._ultimo.get().get("model")
 
-    async def complete(self, messages, temperature=0.2, **kwargs):
-        return await self.generate(messages, temperature=temperature, **kwargs)
+    async def complete(self, messages, temperature=0.2, tools=None, **kwargs):
+        return await self.generate(messages, temperature=temperature, tools=tools, **kwargs)
 
     async def generate(self, messages, temperature=0.2, tools=None, reasoning_effort=None,
                        complexity="SIMPLE", is_classify=False, **kwargs):
