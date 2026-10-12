@@ -182,7 +182,7 @@ def classificar(exc: Exception) -> str:
     """
     for erro in _na_cadeia(exc):
         tipo = getattr(erro, "tipo", None)
-        if isinstance(tipo, str) and tipo in COOLDOWN_PADRAO:
+        if isinstance(tipo, str) and (tipo in COOLDOWN_PADRAO or tipo in DA_REQUISICAO):
             return tipo
     texto = _texto(exc)
     status = status_http(exc)

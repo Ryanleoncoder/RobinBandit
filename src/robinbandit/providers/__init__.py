@@ -10,10 +10,13 @@ import os
 from typing import Any, Dict, List, Optional
 
 from ..config import RobinConfig
+from ..routing.falhas import MotivosDaChamada
 
 
 class UnavailableProvider:
     """Alvo configurado, porém indisponível."""
+
+    e_indisponivel = True
 
     def __init__(self, name: str, reason: str):
         self.supports_tools = False
@@ -29,7 +32,7 @@ class UnavailableProvider:
         raise RuntimeError(self._reason)
 
 
-class ReinforcedProvider:
+class ReinforcedProvider(MotivosDaChamada):
     """Tenta uma fila explícita de contas antes de devolver ao Router."""
 
     def __init__(self, providers: List[Any], name: str = "ultra"):
@@ -80,6 +83,9 @@ class ReinforcedProvider:
         self.last_usage = None
         self.last_quota = None
         self.model_failures = []
+        self.last_attempted_model = None
+        self._abrir_motivos()
+        tipos = []
         ultimo_erro = None
         # Com `tools=`, conta sem ferramenta nativa e pulada SE outra do grupo
         # tiver. Se nenhuma tiver, pular deixava o grupo mudo — no Dedicado so
@@ -120,6 +126,13 @@ class ReinforcedProvider:
                 return resposta
             except Exception as exc:
                 ultimo_erro = exc
+                from ..routing.erros import classificar
+
+                self.last_provider = getattr(provider, "last_provider", None) or provider.name
+                self.last_attempted_model = getattr(provider, "last_attempted_model", None)
+                tipo = classificar(exc)
+                tipos.extend(getattr(exc, "tipos", None) or [tipo])
+                self._registrar_falha(self.last_provider, tipo, exc, self.last_attempted_model)
                 self.model_failures.extend(
                     list(getattr(provider, "model_failures", []) or [])
                 )
@@ -129,7 +142,9 @@ class ReinforcedProvider:
 
         if isinstance(ultimo_erro, RecusaDoModelo):
             raise ultimo_erro
-        raise RuntimeError("nenhuma conta do Reforçado respondeu") from ultimo_erro
+        from ..routing.chain import FalhaDaCadeia
+
+        raise FalhaDaCadeia("nenhuma conta do Reforçado respondeu", tipos, self.ultimas_falhas) from ultimo_erro
 
 def _source_value(settings: Any, name: str, fallback_name: str = "") -> str:
     """Resolve referência de segredo sem expor o valor."""

@@ -514,8 +514,10 @@ class ChainProvider(MotivosDaChamada):
                         self.activity.concluir(evento, status="interrompido", duracao_ms=(time.perf_counter() - inicio) * 1000)
                     raise
                 except Exception as exc:
+                    from .falhas import identidade_da_falha
+                    self.last_provider, self.last_model = identidade_da_falha(provider, exc)
                     if evento:
-                        self.activity.concluir(evento, status="falha", modelo=getattr(provider, "last_attempted_model", None),
+                        self.activity.concluir(evento, status="falha", provedor=self.last_provider, modelo=self.last_model,
                                                 duracao_ms=(time.perf_counter() - inicio) * 1000, motivo=classify_error(exc))
                     last_error = exc
                     record_model_failure = getattr(self.router, "record_model_failure", None)
@@ -524,14 +526,14 @@ class ChainProvider(MotivosDaChamada):
                         for failed_model in failed_models:
                             record_model_failure(pname, failed_model)
                     tipo = classify_error(exc)
-                    self._registrar_falha(pname, tipo, exc)
+                    self._registrar_falha(self.last_provider or pname, tipo, exc, self.last_model)
                     if transitorio(tipo) and tentativa < self._RATE_LIMIT_RETRIES:
                         espera = self._RATE_LIMIT_BACKOFF * (tentativa + 1)
                         logger.warning("Provedor %s com falha passageira (%s); aguardando %.1fs e 1 retry...",
                                        pname, tipo, espera)
                         await asyncio.sleep(espera)
                         continue
-                    tipos_das_falhas.append(tipo)
+                    tipos_das_falhas.extend(getattr(exc, "tipos", None) or [tipo])
                     _soltar(pname)
                     if tipo == "content_policy":
                         recusas = _RECUSAS_DO_TURNO.get()
@@ -558,7 +560,7 @@ class ChainProvider(MotivosDaChamada):
         # A falha também é uma resposta do turno: sem ela gravada, o replay
         # ficava sem a resposta daquela chamada e não sabia que ali o modelo falhou.
         _anotar_resposta(texto="", erro=str(last_error)[:500], tipos=list(tipos_das_falhas),
-                         complexidade=complexity, perfil=profile)
+                         complexidade=complexity, perfil=profile, provedor=self.last_provider, modelo=self.last_model)
         raise FalhaDaCadeia(f"Todos os provedores de LLM falharam: {last_error}", tipos_das_falhas,
                            self.ultimas_falhas) from last_error
 

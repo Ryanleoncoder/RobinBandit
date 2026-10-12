@@ -1,0 +1,9 @@
+{
+  "rotulos": {"claude": "Claude Code", "codex": "ChatGPT pelo Codex"},
+  "logins": {"claude": "claude auth login", "codex": "codex login"},
+  "regras": [
+    {"tipo": "credit", "marcas": ["usage_limit", "usage limit", "usagelimitexceeded", "hit your limit", "reached your limit", "limit reached", "subscription limit", "limit of messages"], "motivo": "atingiu o limite da assinatura; troque o modelo do modo ou espere o limite renovar", "conta_inteira": true},
+    {"tipo": "auth", "marcas": ["authentication_error", "not logged in", "please login", "please log in", "token expired", "expired token", "invalid authentication", "oauth token", "claude auth login", "codex login"], "motivo": "precisa de login; reconecte a conta no painel", "conta_inteira": true},
+    {"tipo": "not_found", "marcas": ["cli não instalado", "cli nao instalado", "filenotfounderror"], "motivo": "não encontrou o CLI; instale o CLI oficial ou configure seu caminho no painel", "conta_inteira": true}
+  ]
+}

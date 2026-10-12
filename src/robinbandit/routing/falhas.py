@@ -2,6 +2,17 @@
 import contextvars
 
 
+def identidade_da_falha(provedor, erro):
+    if getattr(provedor, "e_indisponivel", False):
+        return None, None
+    falhas = getattr(erro, "falhas", None)
+    if falhas:
+        nome, detalhe = list(falhas.items())[-1]
+        return nome, detalhe.get("modelo")
+    return (getattr(provedor, "last_provider", None) or getattr(provedor, "name", type(provedor).__name__),
+            getattr(provedor, "last_attempted_model", None))
+
+
 class MotivosDaChamada:
     @property
     def ultimas_falhas(self):
@@ -13,8 +24,15 @@ class MotivosDaChamada:
             self._motivos = contextvars.ContextVar(f"robin_motivos_{id(self)}", default=None)
         self._motivos.set({})
 
-    def _registrar_falha(self, nome, tipo, erro):
+    def _registrar_falha(self, nome, tipo, erro, modelo=None):
+        if getattr(erro, "falhas", None):
+            atual = self.ultimas_falhas
+            atual.update({chave: dict(valor) for chave, valor in erro.falhas.items()})
+            self._motivos.set(atual)
+            return
         detalhe = {"tipo": tipo}
+        if modelo:
+            detalhe["modelo"] = modelo
         vistos = set()
         while erro is not None and id(erro) not in vistos:
             vistos.add(id(erro))

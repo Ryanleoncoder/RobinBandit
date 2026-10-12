@@ -260,7 +260,8 @@ def _ler_stream(saida: str) -> Dict[str, Any]:
             # Com as ferramentas nativas o CLI roda um passo só (`--max-turns 1`)
             # e termina em `error_max_turns` depois do tool_use: é o fim esperado.
             if evento.get("is_error") and not (chamadas and evento.get("subtype") == "error_max_turns"):
-                erro = str(evento.get("result") or "erro sem descricao")
+                erros = [str(e) for e in (evento.get("errors") or []) if isinstance(e, str)]
+                erro = str(evento.get("result") or "\n".join(erros) or "erro sem descricao")
             resultado = str(evento.get("result") or "")
             uso = evento.get("usage") or {}
             custo = evento.get("total_cost_usd")
@@ -626,8 +627,14 @@ class ClaudeCodeProvider:
         # `except Exception` do laco e o tier inteiro reportava "nenhuma conta
         # respondeu". O provedor estava pronto e ninguem conseguia chegar nele.
         del temperature  # o CLI governa a amostragem
+        from .erro_cli import classificar_cli
+
+        self.last_model = None
+        self.last_attempted_model = None
+        self.last_usage = None
         if not self.configured:
-            raise ClaudeCodeError(f"{self.name}: execute `claude login`")
+            status = claude_code_auth_status(self.binary)
+            raise classificar_cli(ClaudeCodeError(status.detail), "claude", self.name)
         # Gruda no que respondeu. Percorrer a lista sempre na mesma ordem faz
         # um modelo morto custar uma tentativa em TODA chamada seguinte, antes
         # de chegar no que funciona — e aqui cada tentativa e um processo do
@@ -654,12 +661,14 @@ class ClaudeCodeProvider:
                 resposta = await self.generate(messages, model=modelo, tools=tools,
                                                reasoning_effort=reasoning_effort)
             except Exception as exc:
-                ultimo_erro = exc
+                ultimo_erro = classificar_cli(exc, "claude", self.name)
                 if modelo:
                     self.model_failures.append(modelo)
                 if self._modelo_grudado == modelo:
                     self._modelo_grudado = None
-                logger.warning("%s: modelo %s falhou: %s", self.name, modelo or "(padrao)", exc)
+                logger.warning("%s: modelo %s falhou: %s", self.name, modelo or "(padrao)", ultimo_erro)
+                if getattr(ultimo_erro, "conta_inteira", False):
+                    raise ultimo_erro from exc
                 continue
             _gasto = time.monotonic() - _comeco
             if _gasto > _AVISO_DE_LENTIDAO_S:
@@ -668,7 +677,7 @@ class ClaudeCodeProvider:
             self.last_model = self.last_attempted_model
             self._modelo_grudado = modelo
             return resposta
-        raise ClaudeCodeError(f"{self.name}: todos os modelos falharam: {ultimo_erro}")
+        raise ultimo_erro
 
     async def generate(
         self,
