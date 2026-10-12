@@ -10,6 +10,7 @@ import os
 import re
 import shutil
 import subprocess
+import tempfile
 import time
 from dataclasses import dataclass
 from typing import Any, Dict, Iterable, List, Optional
@@ -53,8 +54,20 @@ _PROVIDER_GUARD = (
     "Siga o formato de saída das instruções da conversa, independentemente do idioma do pedido. "
     "Não negue acesso a uma capacidade do hospedeiro apenas porque o CLI não a executa. "
     "Se nenhuma ferramenta for necessária, siga o contrato de resposta da conversa. "
-    "Nunca afirme ter executado uma ação sem resultado fornecido pelo hospedeiro."
+    "Nunca afirme ter executado uma ação sem resultado fornecido pelo hospedeiro. "
+    "Este CLI roda numa pasta temporária e vazia, sem relação com a tarefa: a pasta, o sistema "
+    "e o git do contexto de ambiente do CLI são deste processo. O ambiente da tarefa é o que a "
+    "conversa descreve; não use a pasta do CLI como diretório de uma ferramenta do hospedeiro."
 )
+
+
+def _pasta_neutra() -> str:
+    """Onde o CLI roda. Na pasta de quem chamou, ele carregava o AGENTS.md daquele
+    projeto e anunciava essa pasta ao modelo, que a passava como diretório das
+    ferramentas do hospedeiro."""
+    pasta = os.path.join(tempfile.gettempdir(), "robinbandit-codex")
+    os.makedirs(pasta, exist_ok=True)
+    return pasta
 
 
 class CodexAppServerError(RuntimeError):
@@ -470,6 +483,7 @@ class CodexAppServerClient:
 
         process = await asyncio.create_subprocess_exec(
             *command,
+            cwd=_pasta_neutra(),
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
@@ -545,6 +559,7 @@ class CodexAppServerClient:
             "ephemeral": True,
             "approvalPolicy": "never",
             "sandbox": "read-only",
+            "cwd": _pasta_neutra(),
             "baseInstructions": system_instructions or guard,
             "developerInstructions": guard,
             "serviceName": "robinbandit",
@@ -654,6 +669,7 @@ async def listar_modelos_codex(binary: str = "codex", *, timeout: float = 20.0) 
     process = await asyncio.create_subprocess_exec(
         executable, "app-server", "--listen", "stdio://",
         "-c", 'model_provider="openai"',
+        cwd=_pasta_neutra(),
         stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
