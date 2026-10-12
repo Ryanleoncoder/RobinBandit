@@ -3,12 +3,14 @@ from __future__ import annotations
 
 import asyncio
 import contextvars
+import glob
 import json
 import logging
 import os
 import re
 import shutil
 import subprocess
+import tempfile
 import time
 from dataclasses import dataclass
 from typing import Any, Dict, Iterable, List, Optional
@@ -52,8 +54,20 @@ _PROVIDER_GUARD = (
     "Siga o formato de saída das instruções da conversa, independentemente do idioma do pedido. "
     "Não negue acesso a uma capacidade do hospedeiro apenas porque o CLI não a executa. "
     "Se nenhuma ferramenta for necessária, siga o contrato de resposta da conversa. "
-    "Nunca afirme ter executado uma ação sem resultado fornecido pelo hospedeiro."
+    "Nunca afirme ter executado uma ação sem resultado fornecido pelo hospedeiro. "
+    "Este CLI roda numa pasta temporária e vazia, sem relação com a tarefa: a pasta, o sistema "
+    "e o git do contexto de ambiente do CLI são deste processo. O ambiente da tarefa é o que a "
+    "conversa descreve; não use a pasta do CLI como diretório de uma ferramenta do hospedeiro."
 )
+
+
+def _pasta_neutra() -> str:
+    """Onde o CLI roda. Na pasta de quem chamou, ele carregava o AGENTS.md daquele
+    projeto e anunciava essa pasta ao modelo, que a passava como diretório das
+    ferramentas do hospedeiro."""
+    pasta = os.path.join(tempfile.gettempdir(), "robinbandit-codex")
+    os.makedirs(pasta, exist_ok=True)
+    return pasta
 
 
 class CodexAppServerError(RuntimeError):
@@ -98,30 +112,44 @@ _TETO_DA_CHAMADA_S = 110.0
 _AVISO_DE_LENTIDAO_S = 60.0
 
 
-# Locais comuns do CLI quando ele não está no PATH do servidor.
+# Locais comuns do CLI quando ele não está no PATH do servidor. O app de
+# desktop instala uma pasta por versão, com o host do code mode junto.
 _LOCAIS_CONHECIDOS = (
     ("~", ".codex", "bin"),
     ("~", ".codex", ".sandbox-bin"),
     ("~", ".codex", "plugins", ".plugin-appserver"),
+    ("~", "AppData", "Local", "OpenAI", "Codex", "bin", "*"),
 )
+
+_HOST_DO_CODE_MODE = "codex-code-mode-host"
+
+
+def tem_host_do_code_mode(executavel: str) -> bool:
+    """O Codex recente entrega a ferramenta do hospedeiro pelo code mode, que roda
+    num executável ao lado do CLI. Sem ele, a chamada morre no roteador do Codex."""
+    pasta = os.path.dirname(os.path.abspath(executavel))
+    return any(os.path.isfile(os.path.join(pasta, _HOST_DO_CODE_MODE + ext)) for ext in ("", ".exe"))
 
 
 def resolve_codex_binary(binary: str = "codex") -> Optional[str]:
-    """Resolve o executável configurado sem invocar shell."""
+    """Resolve o executável configurado sem invocar shell. Entre as instalações
+    achadas, vence a que tem o host do code mode ao lado."""
     candidate = str(binary or "codex").strip() or "codex"
     if os.path.isabs(candidate) and os.path.isfile(candidate):
         return candidate
+    achados = []
     achado = shutil.which(candidate)
     if achado:
-        return achado
+        achados.append(achado)
     nomes = (candidate, f"{candidate}.exe", f"{candidate}.cmd")
     for partes in _LOCAIS_CONHECIDOS:
-        pasta = os.path.expanduser(os.path.join(*partes))
-        for nome in nomes:
-            caminho = os.path.join(pasta, nome)
-            if os.path.isfile(caminho):
-                return caminho
-    return None
+        padrao = os.path.expanduser(os.path.join(*partes))
+        for pasta in sorted(glob.glob(padrao), key=os.path.getmtime, reverse=True):
+            for nome in nomes:
+                caminho = os.path.join(pasta, nome)
+                if os.path.isfile(caminho):
+                    achados.append(caminho)
+    return next((c for c in achados if tem_host_do_code_mode(c)), achados[0] if achados else None)
 
 
 def codex_auth_status(binary: str = "codex", *, timeout: float = 5.0) -> CodexAuthStatus:
@@ -281,8 +309,9 @@ class CodexAppServerClient:
     """Cliente JSONL mínimo do protocolo estável do app-server."""
 
     # Tudo que faz o Codex executar algo por conta própria. Quem executa é o
-    # hospedeiro. `code_mode_host` (ligado no 0.159) tenta abrir um executável
-    # à parte e, sem ele, o turno morre antes de chegar à ferramenta do Sentury.
+    # hospedeiro. `code_mode_host` é exceção quando o host está ao lado do CLI:
+    # é por ele que a chamada chega à ferramenta do Sentury. Sem o host, ligado,
+    # o turno morre tentando abrir um executável que não existe.
     _DISABLED_FEATURES = (
         "apps", "browser_use", "browser_use_external", "code_mode_host", "computer_use",
         "image_generation", "multi_agent", "plugins", "shell_tool", "skill_search",
@@ -306,8 +335,11 @@ class CodexAppServerClient:
             executable, "app-server", "--listen", "stdio://",
             "-c", 'model_provider="openai"',
         ]
+        com_host = tem_host_do_code_mode(executable)
         for feature in self._DISABLED_FEATURES:
             if feature in _FEATURES_RECUSADAS:
+                continue
+            if feature == "code_mode_host" and com_host:
                 continue
             command.extend(["--disable", feature])
         for servidor in _servidores_mcp_do_usuario():
@@ -451,6 +483,7 @@ class CodexAppServerClient:
 
         process = await asyncio.create_subprocess_exec(
             *command,
+            cwd=_pasta_neutra(),
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
@@ -526,6 +559,7 @@ class CodexAppServerClient:
             "ephemeral": True,
             "approvalPolicy": "never",
             "sandbox": "read-only",
+            "cwd": _pasta_neutra(),
             "baseInstructions": system_instructions or guard,
             "developerInstructions": guard,
             "serviceName": "robinbandit",
@@ -635,6 +669,7 @@ async def listar_modelos_codex(binary: str = "codex", *, timeout: float = 20.0) 
     process = await asyncio.create_subprocess_exec(
         executable, "app-server", "--listen", "stdio://",
         "-c", 'model_provider="openai"',
+        cwd=_pasta_neutra(),
         stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,

@@ -19,6 +19,48 @@ def test_app_server_nao_herda_o_robinbandit_como_provedor():
     assert 'model_provider="openai"' in command
 
 
+def _instalar(pasta, *nomes):
+    pasta.mkdir(parents=True, exist_ok=True)
+    for nome in nomes:
+        (pasta / nome).write_bytes(b"")
+    return pasta
+
+
+def test_code_mode_so_fica_ligado_com_o_host_ao_lado(tmp_path):
+    """Com o host, o code mode é o caminho da ferramenta do hospedeiro; sem ele,
+    ligado, o turno morre tentando abrir um executável que não existe."""
+    com_host = _instalar(tmp_path / "app", "codex.exe", "codex-code-mode-host.exe") / "codex.exe"
+    sem_host = _instalar(tmp_path / "solto", "codex.exe") / "codex.exe"
+
+    assert "code_mode_host" not in CodexAppServerClient()._command(str(com_host))
+    comando = CodexAppServerClient()._command(str(sem_host))
+    assert comando[comando.index("code_mode_host") - 1] == "--disable"
+    assert "shell_tool" in CodexAppServerClient()._command(str(com_host))
+
+
+def test_instalacao_com_host_vence_a_que_esta_no_path(tmp_path, monkeypatch):
+    """Um CLI antigo no PATH não chama a ferramenta do Sentury; o do app, com o
+    host, chama."""
+    from robinbandit.providers import codex_provider
+
+    no_path = _instalar(tmp_path / "path", "codex.exe") / "codex.exe"
+    _instalar(tmp_path / "app" / "v1", "codex.exe", "codex-code-mode-host.exe")
+    monkeypatch.setattr(codex_provider.shutil, "which", lambda _: str(no_path))
+    monkeypatch.setattr(codex_provider, "_LOCAIS_CONHECIDOS", ((str(tmp_path), "app", "*"),))
+
+    assert codex_provider.resolve_codex_binary("codex") == str(tmp_path / "app" / "v1" / "codex.exe")
+
+
+def test_sem_host_em_lugar_nenhum_fica_o_do_path(tmp_path, monkeypatch):
+    from robinbandit.providers import codex_provider
+
+    no_path = _instalar(tmp_path / "path", "codex.exe") / "codex.exe"
+    monkeypatch.setattr(codex_provider.shutil, "which", lambda _: str(no_path))
+    monkeypatch.setattr(codex_provider, "_LOCAIS_CONHECIDOS", ((str(tmp_path), "nada", "*"),))
+
+    assert codex_provider.resolve_codex_binary("codex") == str(no_path)
+
+
 def test_split_messages_preserva_instrucoes_e_historico():
     instructions, history, turn = _split_messages([
         {"role": "system", "content": "Regra A"},
