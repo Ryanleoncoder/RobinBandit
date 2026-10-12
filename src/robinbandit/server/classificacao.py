@@ -51,7 +51,14 @@ def escolha_do(pedido):
 
 def rotas(config, atividade=None):
     router = APIRouter()
-    teste_em_curso = asyncio.Lock()
+    # Nasce no primeiro teste, já dentro do loop: no Python 3.9 o lock criado
+    # na montagem do app, fora de um loop, derrubava o `create_app` inteiro.
+    trava = []
+
+    def teste_em_curso():
+        if not trava:
+            trava.append(asyncio.Lock())
+        return trava[0]
 
     @router.get("/config/classificacao")
     async def ler():
@@ -72,9 +79,9 @@ def rotas(config, atividade=None):
     @router.post("/config/classificacao/testar")
     async def testar(pedido: Teste):
         from ..routing.classificador_execucao import classificar, FalhaDeClassificacao
-        if teste_em_curso.locked():
+        if teste_em_curso().locked():
             raise HTTPException(409, "Um teste de classificação já está em andamento.")
-        async with teste_em_curso:
+        async with teste_em_curso():
             try:
                 return await classificar(config, escolha_do(pedido.classificador), pedido.pedido,
                                          pedido.contexto, pedido.contextos, atividade)
